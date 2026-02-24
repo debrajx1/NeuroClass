@@ -8,7 +8,16 @@ __pycache__/
 
 # Output and logs
 error.log
+*.log
+*_output.txt
+backend/debug_output*.txt
+frontend/frontend_output.txt
 uploads/
+
+# Temp and backup files
+*.jsxx
+*.tmp
+*.bak
 
 # OS generated files
 .DS_Store

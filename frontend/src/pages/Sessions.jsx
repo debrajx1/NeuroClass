@@ -88,6 +88,18 @@ const Sessions = () => {
         }
     };
 
+    const handleEndSession = async (sessionId) => {
+        if (!window.confirm("End this session and turn off the camera?")) return;
+        try {
+            await api.put(`/api/analytics/session/${sessionId}/end`);
+            toast.success("Session ended successfully.");
+            fetchSessions(); // Refresh list
+        } catch (error) {
+            console.error("Failed to end session", error);
+            toast.error("Failed to end session");
+        }
+    };
+
     const filteredSessions = sessions.filter(session =>
         (session.className || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -264,15 +276,27 @@ const Sessions = () => {
                                         </td>
                                         <td className="p-4 text-right">
                                             <div className="flex items-center justify-end gap-2">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        navigate('/attendance');
-                                                    }}
-                                                    className="text-indigo-600 hover:text-indigo-800 font-medium text-sm flex items-center transition-colors whitespace-nowrap bg-indigo-50 px-3 py-1.5 rounded-md hover:bg-indigo-100"
-                                                >
-                                                    <FileText className="w-4 h-4 mr-1" /> Attendance
-                                                </button>
+                                                {session.status === 'active' ? (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleEndSession(session._id);
+                                                        }}
+                                                        className="text-red-600 hover:text-red-800 font-medium text-sm flex items-center transition-colors whitespace-nowrap bg-red-50 px-3 py-1.5 rounded-md hover:bg-red-100"
+                                                    >
+                                                        <X className="w-4 h-4 mr-1" /> Stop Session
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            navigate('/attendance');
+                                                        }}
+                                                        className="text-indigo-600 hover:text-indigo-800 font-medium text-sm flex items-center transition-colors whitespace-nowrap bg-indigo-50 px-3 py-1.5 rounded-md hover:bg-indigo-100"
+                                                    >
+                                                        <FileText className="w-4 h-4 mr-1" /> Attendance
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();

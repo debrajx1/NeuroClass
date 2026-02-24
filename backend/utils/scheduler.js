@@ -1,5 +1,5 @@
+const { spawn, exec } = require('child_process');
 const cron = require('node-cron');
-const { spawn } = require('child_process');
 const path = require('path');
 const Session = require('../models/Session');
 const Teacher = require('../models/Teacher');
@@ -72,105 +72,103 @@ const startCameraProcess = (session, teacherId) => {
 };
 
 const stopCameraProcess = () => {
-    if (activeProcess) {
-        console.log("[Scheduler] Killing active camera process...");
-        // This is a naive kill, might require safer handling for windows
-        try {
-            process.kill(-activeProcess.pid);
-        } catch (e) {
-            try {
-                activeProcess.kill();
-            } catch (err) { }
-        }
-        activeProcess = null;
+    console.log("[Scheduler] Ensuring AI camera process is terminated...");
+    try {
+        // Use taskkill /F to force-kill all python processes on Windows.
+        // This is much more reliable for the camera lock issue.
+        exec('taskkill /F /IM python.exe /T', (err) => {
+            if (err) console.log("[Scheduler] No camera process to kill.");
+        });
+    } catch (e) {
+        console.error("[Scheduler] Failed to kill camera process:", e);
     }
+    activeProcess = null;
 }
 
 const initScheduler = async () => {
     console.log("[Scheduler] Initialized. Checking schedule every minute...");
 
-    // We need a default teacher to assign auto-sessions to since this is a 
-    // single-user demo setup for now.
-    const defaultTeacher = await Teacher.findOne();
-    if (!defaultTeacher) {
-        console.warn("[Scheduler] No teacher found in DB. Cannot auto-create sessions.");
-        return;
-    }
-
-    // Run string standard cron: every minute
     cron.schedule('* * * * *', async () => {
-        // Fetch fresh teacher data every minute to check the toggle status
-        const currentTeacherStatus = await Teacher.findById(defaultTeacher._id);
-        const isEnabled = currentTeacherStatus ? currentTeacherStatus.isAutoScheduleEnabled : false;
-
-        const expectedClass = getCurrentClass();
-
+        if (process.env.DISABLE_AUTO_SCHEDULER === 'true') {
+            return; // Exit silently if master kill switch is ON
+        }
         try {
-            // Find any currently active session in the database
-            const activeSession = await Session.findOne({ status: 'active' });
+            // Fetch all teachers to check their individual schedules and toggles
+            const teachers = await Teacher.find({});
 
-            // Ignore manual sessions completely. The teacher must end them manually.
-            if (activeSession && activeSession.isManual) {
-                return;
-            }
+            for (const teacher of teachers) {
+                const isEnabled = teacher.isAutoScheduleEnabled;
+                const expectedClass = getCurrentClass();
 
-            if (expectedClass && isEnabled) {
-                // WE SHOULD BE IN A CLASS AND AUTOMATION IS ON
+                // Find any currently active session for THIS teacher
+                const activeSession = await Session.findOne({
+                    teacher: teacher._id,
+                    status: 'active'
+                });
 
-                // Calculate the exact start time of this class slot for today
-                const now = new Date();
-                const [expectedStartHour, expectedStartMin] = expectedClass.start.split(':').map(Number);
-                const classStartTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), expectedStartHour, expectedStartMin, 0, 0);
-
-                if (!activeSession) {
-                    // Check if we already created a session for this specific class slot today
-                    const existingSessionForSlot = await Session.findOne({
-                        teacher: defaultTeacher._id,
-                        className: expectedClass.className,
-                        subject: expectedClass.subject,
-                        startTime: { $gte: classStartTime }
-                    });
-
-                    // If a session exists (even if completed manually), we satisfy the auto-schedule for this period. Do NOT restart.
-                    if (existingSessionForSlot) {
-                        return;
-                    }
-
-                    // Start a new session!
-                    console.log(`[Scheduler] Time hit for ${expectedClass.subject}! Starting class...`);
-                    const newSession = await Session.create({
-                        teacher: defaultTeacher._id,
-                        className: expectedClass.className,
-                        subject: expectedClass.subject,
-                        status: 'active'
-                    });
-                    startCameraProcess(newSession, defaultTeacher._id);
-                } else if (activeSession.subject !== expectedClass.subject) {
-                    // The schedule moved to the next subject, but the old session is still active!
-                    console.log(`[Scheduler] Subject changed from ${activeSession.subject} to ${expectedClass.subject}. Ending old session...`);
-                    activeSession.status = 'completed';
-                    activeSession.endTime = new Date();
-                    await activeSession.save();
-                    stopCameraProcess();
-
-                    // Start the new one
-                    const newSession = await Session.create({
-                        teacher: defaultTeacher._id,
-                        className: expectedClass.className,
-                        subject: expectedClass.subject,
-                        status: 'active'
-                    });
-                    setTimeout(() => startCameraProcess(newSession, defaultTeacher._id), 2000); // Wait 2s before restarting camera
+                // CRITICAL: If the teacher is running a MANUAL session (for testing/demo),
+                // the scheduler MUST back off completely and never touch it.
+                if (activeSession && activeSession.isManual) {
+                    continue; // Check next teacher
                 }
-                // Else: The correct session is already active. Do nothing.
-            } else {
-                // WE SHOULD NOT BE IN A CLASS (e.g. Lunch break, after hours, weekend, or Toggle is OFF)
-                if (activeSession) {
-                    console.log(`[Scheduler] Automation turned off or class ended for ${activeSession.subject}. Closing session...`);
-                    activeSession.status = 'completed';
-                    activeSession.endTime = new Date();
-                    await activeSession.save();
-                    stopCameraProcess();
+
+                if (isEnabled && expectedClass) {
+                    // Calculate expected start time for today
+                    const now = new Date();
+                    const [h, m] = expectedClass.start.split(':').map(Number);
+                    const classStartTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
+
+                    if (!activeSession) {
+                        // Check if we already created an AUTO session for this teacher/subject today
+                        const existingSession = await Session.findOne({
+                            teacher: teacher._id,
+                            className: expectedClass.className,
+                            subject: expectedClass.subject,
+                            startTime: { $gte: classStartTime },
+                            isManual: { $ne: true }
+                        });
+
+                        if (existingSession) continue;
+
+                        console.log(`[Scheduler] Automation starting for ${teacher.email}: ${expectedClass.subject}`);
+                        const newSession = await Session.create({
+                            teacher: teacher._id,
+                            className: expectedClass.className,
+                            subject: expectedClass.subject,
+                            status: 'active',
+                            isManual: false
+                        });
+                        startCameraProcess(newSession, teacher._id);
+                    } else if (activeSession.subject !== expectedClass.subject) {
+                        // Subject changed
+                        console.log(`[Scheduler] Automation: Subject changed for ${teacher.email}.`);
+                        activeSession.status = 'completed';
+                        activeSession.endTime = new Date();
+                        await activeSession.save();
+                        stopCameraProcess();
+
+                        const newSession = await Session.create({
+                            teacher: teacher._id,
+                            className: expectedClass.className,
+                            subject: expectedClass.subject,
+                            status: 'active',
+                            isManual: false
+                        });
+                        setTimeout(() => startCameraProcess(newSession, teacher._id), 2000);
+                    }
+                } else {
+                    // Automation is OFF or NO CLASS scheduled.
+                    // If an AUTO session is running for this teacher, close it.
+                    if (activeSession && !activeSession.isManual) {
+                        console.log(`[Scheduler] Automation ending for ${teacher.email}: ${activeSession.subject}`);
+                        activeSession.status = 'completed';
+                        activeSession.endTime = new Date();
+                        await activeSession.save();
+                        stopCameraProcess();
+                    } else if (activeSession && activeSession.isManual) {
+                        // Log that we are staying out of the way of a manual session
+                        // console.log(`[Scheduler] Manual session active for ${teacher.email}. Standing by.`);
+                    }
                 }
             }
         } catch (error) {

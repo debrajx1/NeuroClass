@@ -25,17 +25,12 @@ const teacherSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-teacherSchema.pre('save', async function (next) {
+teacherSchema.pre('save', async function () {
     if (!this.isModified('password')) {
-        return next();
+        return;
     }
-    try {
-        const salt = await bcrypt.genSalt(10);
-        this.password = await bcrypt.hash(this.password, salt);
-        return next();
-    } catch (error) {
-        return next(error);
-    }
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
 });
 
 teacherSchema.methods.matchPassword = async function (enteredPassword) {

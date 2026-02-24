@@ -218,8 +218,11 @@ const Dashboard = () => {
 
         try {
             await api.put(`/api/analytics/session/${activeSession._id}/end`);
-            fetchAnalytics(); // Refresh to show ended state
+            setActiveSession(null); // INSTANT CLEAR: Don't wait for re-fetch to update UI
             toast.success("Session ended! The AI camera will shut down automatically in a few seconds.");
+
+            // Re-fetch in the background to ensure consistency, but UI is already clean
+            fetchAnalytics();
         } catch (error) {
             console.error("Failed to end session", error);
             toast.error("Failed to end session");
@@ -369,7 +372,20 @@ const Dashboard = () => {
             {/* Header section */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Class Overview</h1>
+                    <div className="flex items-center gap-3">
+                        <h1 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Class Overview</h1>
+                        {isAutoEnabled ? (
+                            <span className="flex items-center px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded uppercase tracking-wider border border-green-200 shadow-sm animate-pulse">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5"></span>
+                                Auto-Scheduler Active
+                            </span>
+                        ) : (
+                            <span className="flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded uppercase tracking-wider border border-slate-200 shadow-sm">
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5"></span>
+                                Manual Mode
+                            </span>
+                        )}
+                    </div>
                     <div className="flex flex-wrap items-center gap-3 mt-3">
                         <div className="flex items-center px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-semibold border border-blue-100 shadow-sm">
                             <BookOpen className="w-3.5 h-3.5 mr-1.5" />
@@ -492,14 +508,16 @@ const Dashboard = () => {
                         Today's Automated Schedule
                     </h3>
 
-                    <div className="flex items-center space-x-3 bg-slate-50 dark:bg-slate-950 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <Settings className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                        <span className="text-sm font-semibold text-slate-700">Master Automation</span>
+                    <div className="flex items-center space-x-3 bg-white dark:bg-slate-950 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                        <Settings className={`w-4 h-4 ${isAutoEnabled ? 'text-green-500 animate-spin-slow' : 'text-slate-400'}`} />
+                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                            Automation: {isAutoEnabled ? 'ON' : 'OFF'}
+                        </span>
                         <button
                             onClick={handleToggleAuto}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${isAutoEnabled ? 'bg-green-500' : 'bg-slate-300'}`}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${isAutoEnabled ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-700'}`}
                         >
-                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white dark:bg-slate-900 transition-transform ${isAutoEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isAutoEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                         </button>
                     </div>
                 </div>

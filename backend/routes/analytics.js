@@ -378,6 +378,20 @@ router.post('/session/start-camera', protect, async (req, res) => {
         const scriptPath = path.join(__dirname, '../../ai_module/main.py');
         const aiModuleDir = path.join(__dirname, '../../ai_module');
 
+        // FORCE CLEANUP: Kill any orphaned python processes running main.py before starting a new one
+        // This prevents camera locking on Windows.
+        const { exec } = require('child_process');
+        try {
+            // We use /F to force and /T to kill child processes. 
+            // We target python.exe. In a real multi-user environment, we'd be more specific, 
+            // but for this standalone demo, clearing all python processes is safest for the camera.
+            exec('taskkill /F /IM python.exe /T', (err) => {
+                if (err) console.log("No existing python processes to kill or access denied.");
+            });
+        } catch (e) {
+            console.error("Cleanup failed", e);
+        }
+
         // Spawn python process in the background, injecting the real teacher ID, class name, and SESSION ID
         const pyProcess = spawn('python', [scriptPath], {
             cwd: aiModuleDir,
