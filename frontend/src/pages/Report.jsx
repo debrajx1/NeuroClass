@@ -1,6 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell
 } from 'recharts';
@@ -30,12 +28,9 @@ const Report = () => {
     useEffect(() => {
         const fetchReportData = async () => {
             try {
-                const token = localStorage.getItem('token');
-                const config = { headers: { Authorization: `Bearer ${token}` } };
-
                 // If not passed via state, try to fetch from sessions list
                 if (!session) {
-                    const sessRes = await axios.get('http://localhost:5000/api/analytics/sessions', config);
+                    const sessRes = await api.get('/api/analytics/sessions');
                     const found = sessRes.data.find(s => s._id === id);
                     if (found) setSession(found);
                     else {
@@ -45,10 +40,10 @@ const Report = () => {
                     }
                 }
 
-                const sumRes = await axios.get(`http://localhost:5000/api/analytics/summary/${id}`, config);
+                const sumRes = await api.get(`/api/analytics/summary/${id}`);
                 setSummary(sumRes.data);
 
-                const timeRes = await axios.get(`http://localhost:5000/api/analytics/timeline/${id}`, config);
+                const timeRes = await api.get(`/api/analytics/timeline/${id}`);
                 const formattedTimeline = timeRes.data.map(t => ({
                     time: format(new Date(t.time), 'HH:mm:ss'),
                     attentive: t.attentive,

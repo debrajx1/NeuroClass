@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { Users, Plus, Upload, Trash2, Edit2, X, Crop as CropIcon, Check, FileText, FileCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -35,10 +34,7 @@ const Students = () => {
 
     const fetchStudents = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const res = await axios.get('http://localhost:5000/api/students', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await api.get('/api/students');
             setStudents(res.data);
             setLoading(false);
         } catch (error) {
@@ -134,19 +130,13 @@ const Students = () => {
             }
 
             if (isEditing) {
-                await axios.put(`http://localhost:5000/api/students/${editId}`, data, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        'Content-Type': 'multipart/form-data'
-                    }
+                await api.put(`/api/students/${editId}`, data, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
                 });
                 toast.success("Student updated successfully!");
             } else {
-                await axios.post('http://localhost:5000/api/students', data, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        'Content-Type': 'multipart/form-data'
-                    }
+                await api.post('/api/students', data, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
                 });
                 toast.success("Student added successfully!");
             }
@@ -165,10 +155,7 @@ const Students = () => {
         if (!window.confirm(`Are you sure you want to remove ${name}?`)) return;
 
         try {
-            const token = localStorage.getItem('token');
-            await axios.delete(`http://localhost:5000/api/students/${id}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            await api.delete(`/api/students/${id}`);
             toast.success("Student deleted successfully!");
             fetchStudents();
         } catch (error) {

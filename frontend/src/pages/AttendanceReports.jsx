@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { Download, Calendar, Users, BookOpen, Clock, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -18,10 +17,7 @@ const AttendanceReports = () => {
 
     const fetchReports = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const res = await axios.get('http://localhost:5000/api/analytics/attendance/daily', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await api.get('/api/analytics/attendance/daily');
             setReports(res.data);
             setIsLoading(false);
         } catch (error) {

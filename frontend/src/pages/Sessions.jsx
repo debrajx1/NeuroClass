@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { format, differenceInMinutes, differenceInSeconds } from 'date-fns';
 import { AuthContext } from '../context/AuthContext';
 import { Users, Search, Calendar, ChevronRight, Video, BookOpen, Info, X, FileText } from 'lucide-react';
@@ -21,15 +20,13 @@ const Sessions = () => {
 
     const fetchSessions = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const config = { headers: { Authorization: `Bearer ${token}` } };
-            const res = await axios.get('http://localhost:5000/api/analytics/sessions', config);
+            const res = await api.get('/api/analytics/sessions');
             setSessions(res.data);
             setLoading(false);
 
             // Also fetch schedule to pre-fill the modal just in case
             try {
-                const scheduleRes = await axios.get('http://localhost:5000/api/analytics/schedule/today', config);
+                const scheduleRes = await api.get('/api/analytics/schedule/today');
                 if (scheduleRes.data.currentClass) {
                     setNewSessionName(scheduleRes.data.currentClass.className);
                     setNewSessionSubject(scheduleRes.data.currentClass.subject);
@@ -67,12 +64,9 @@ const Sessions = () => {
 
         setIsStarting(true);
         try {
-            const token = localStorage.getItem('token');
-            await axios.post('http://localhost:5000/api/analytics/session/start-camera', {
+            await api.post('/api/analytics/session/start-camera', {
                 className: newSessionName,
                 subject: newSessionSubject
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
             });
 
             toast.success("Camera is starting! Redirecting to Dashboard...");

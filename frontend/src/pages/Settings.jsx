@@ -5,7 +5,7 @@ import {
     Smartphone, Eye, EyeOff, Brain, Zap, Trophy, Coins, AlertCircle,
     BarChart, Layout, Sparkles, Database, History, DownloadCloud, Trash2
 } from 'lucide-react';
-import axios from 'axios';
+import api from '../api';
 import toast from 'react-hot-toast';
 
 const Settings = () => {
@@ -37,10 +37,7 @@ const Settings = () => {
     useEffect(() => {
         const fetchSettings = async () => {
             try {
-                const token = localStorage.getItem('token');
-                const res = await axios.get('http://localhost:5000/api/analytics/settings', {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
+                const res = await api.get('/api/analytics/settings');
                 setToggles(prev => ({ ...prev, isAutoScheduleEnabled: res.data.isAutoScheduleEnabled }));
                 setIsLoading(false);
             } catch (error) {
@@ -61,10 +58,7 @@ const Settings = () => {
 
     const handleAutoScheduleToggle = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const res = await axios.put('http://localhost:5000/api/analytics/settings/toggle-schedule', {}, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await api.put('/api/analytics/settings/toggle-schedule', {});
             setToggles(prev => ({ ...prev, isAutoScheduleEnabled: res.data.isAutoScheduleEnabled }));
             toast.success(res.data.message);
         } catch (error) {

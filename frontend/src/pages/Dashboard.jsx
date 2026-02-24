@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
-import axios from 'axios';
+import api, { API_BASE_URL } from '../api';
 import { AuthContext } from '../context/AuthContext';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell
@@ -65,26 +64,23 @@ const Dashboard = () => {
 
     const fetchAnalytics = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const config = { headers: { Authorization: `Bearer ${token}` } };
-
             let session = null;
             try {
                 // Fetch schedule and settings
-                const scheduleRes = await axios.get('http://localhost:5000/api/analytics/schedule/today', config);
+                const scheduleRes = await api.get('/api/analytics/schedule/today');
                 setDailySchedule(scheduleRes.data.schedule);
                 setCurrentExpectedClass(scheduleRes.data.currentClass);
                 setIsHoliday(scheduleRes.data.isHoliday);
 
-                const settingsRes = await axios.get('http://localhost:5000/api/analytics/settings', config);
+                const settingsRes = await api.get('/api/analytics/settings');
                 setIsAutoEnabled(settingsRes.data.isAutoScheduleEnabled);
 
                 // First try to get an active session
-                const sessionRes = await axios.get('http://localhost:5000/api/analytics/session/active', config);
+                const sessionRes = await api.get('/api/analytics/session/active');
                 session = sessionRes.data;
 
                 // Load attendance stats for today
-                const attendanceRes = await axios.get('http://localhost:5000/api/analytics/attendance/daily', config);
+                const attendanceRes = await api.get('/api/analytics/attendance/daily');
                 if (attendanceRes.data.length > 0 && attendanceRes.data[0].sessions.length > 0) {
                     const todaySessions = attendanceRes.data[0].sessions;
                     const latest = todaySessions[0];
@@ -94,7 +90,7 @@ const Dashboard = () => {
             } catch (err) {
                 // If no active session, try to get the latest completed one
                 try {
-                    const latestSessionRes = await axios.get('http://localhost:5000/api/analytics/session/latest', config);
+                    const latestSessionRes = await api.get('/api/analytics/session/latest');
                     const latestSession = latestSessionRes.data;
                     const today = new Date();
                     const sessionDate = new Date(latestSession.startTime);
@@ -116,10 +112,10 @@ const Dashboard = () => {
 
             if (session) {
                 setActiveSession(session);
-                const sumRes = await axios.get(`http://localhost:5000/api/analytics/summary/${session._id}`, config);
+                const sumRes = await api.get(`/api/analytics/summary/${session._id}`);
                 setSummary(sumRes.data);
 
-                const timeRes = await axios.get(`http://localhost:5000/api/analytics/timeline/${session._id}`, config);
+                const timeRes = await api.get(`/api/analytics/timeline/${session._id}`);
                 const formattedTimeline = timeRes.data.map(t => ({
                     time: format(new Date(t.time), 'HH:mm:ss'),
                     attentive: t.attentive,
@@ -151,7 +147,7 @@ const Dashboard = () => {
         const interval = setInterval(fetchAnalytics, 10000);
 
         // Socket.IO Integration
-        const socket = io('http://localhost:5000', {
+        const socket = io(API_BASE_URL, {
             reconnectionDelayMax: 10000,
             reconnection: true,
             reconnectionAttempts: 10
@@ -220,10 +216,7 @@ const Dashboard = () => {
         if (!window.confirm("Are you sure you want to end this session and turn off the camera?")) return;
 
         try {
-            const token = localStorage.getItem('token');
-            await axios.put(`http://localhost:5000/api/analytics/session/${activeSession._id}/end`, {}, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            await api.put(`/api/analytics/session/${activeSession._id}/end`);
             fetchAnalytics(); // Refresh to show ended state
             toast.success("Session ended! The AI camera will shut down automatically in a few seconds.");
         } catch (error) {
@@ -236,12 +229,9 @@ const Dashboard = () => {
         setIsStartingSession(true);
         if (currentExpectedClass) {
             try {
-                const token = localStorage.getItem('token');
-                await axios.post('http://localhost:5000/api/analytics/session/start-camera', {
+                await api.post('/api/analytics/session/start-camera', {
                     className: currentExpectedClass.className,
                     subject: currentExpectedClass.subject
-                }, {
-                    headers: { Authorization: `Bearer ${token}` }
                 });
                 toast.success(`Starting scheduled class: ${currentExpectedClass.subject}!`);
                 setTimeout(() => {
@@ -284,10 +274,7 @@ const Dashboard = () => {
 
     const handleToggleAuto = async () => {
         try {
-            const token = localStorage.getItem('token');
-            const res = await axios.put('http://localhost:5000/api/analytics/settings/toggle-schedule', {}, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await api.put('/api/analytics/settings/toggle-schedule', {});
             setIsAutoEnabled(res.data.isAutoScheduleEnabled);
             toast.success(res.data.message);
         } catch (error) {

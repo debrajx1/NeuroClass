@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { TrendingUp, BookOpen, Clock, Activity, Download, Send, Bot, User as UserIcon, MessageSquare, Sparkles } from 'lucide-react';
 import { saveAs } from 'file-saver';
@@ -35,10 +34,7 @@ const Analytics = () => {
     useEffect(() => {
         const fetchGlobalStats = async () => {
             try {
-                const token = localStorage.getItem('token');
-                const res = await axios.get('http://localhost:5000/api/analytics/global-stats', {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
+                const res = await api.get('/api/analytics/global-stats');
                 setStats(res.data);
             } catch (error) {
                 console.error("Failed to fetch global stats", error);
@@ -73,15 +69,12 @@ const Analytics = () => {
         setInputMessage('');
 
         try {
-            const token = localStorage.getItem('token');
             console.log("[Analytics] Dispatching AI Chat Request...", { messageToSend });
 
-            const res = await axios.post('http://localhost:5000/api/analytics/ai-chat', {
+            const res = await api.post('/api/analytics/ai-chat', {
                 message: messageToSend,
                 stats,
                 history: (messages || []).map(m => ({ role: String(m?.role || ''), content: String(m?.content || '') }))
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
             });
 
             console.log("[Analytics] AI Response Received:", res.data);
