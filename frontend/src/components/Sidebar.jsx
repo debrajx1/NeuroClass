@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import { LayoutDashboard, Users, Activity, Settings, LogOut, BrainCircuit, UsersRound } from 'lucide-react';
+import { LayoutDashboard, Users, Activity, Settings, LogOut, BrainCircuit, UsersRound, FileCheck } from 'lucide-react';
 
 const Sidebar = () => {
     const { logout, user } = useContext(AuthContext);
@@ -11,6 +11,7 @@ const Sidebar = () => {
         { name: 'Dashboard', path: '/', icon: LayoutDashboard },
         { name: 'Sessions', path: '/sessions', icon: Users },
         { name: 'Students', path: '/students', icon: UsersRound },
+        { name: 'Attendance', path: '/attendance', icon: FileCheck },
         { name: 'Analytics', path: '/analytics', icon: Activity },
         { name: 'Settings', path: '/settings', icon: Settings },
     ];
@@ -35,16 +36,16 @@ const Sidebar = () => {
                         <Link
                             key={link.name}
                             to={link.path}
-                            className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 group relative overflow-hidden ${isActive
-                                ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/25'
-                                : 'text-slate-400 hover:bg-dark-800 hover:text-white'
+                            className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-300 group relative overflow-hidden ${isActive
+                                ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(79,70,229,0.3)]'
+                                : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
                                 }`}
                         >
                             {isActive && (
-                                <div className="absolute left-0 top-0 bottom-0 w-1 bg-white dark:bg-slate-900 rounded-r-md"></div>
+                                <div className="absolute left-0 top-0 bottom-0 w-1 bg-white rounded-r-md animate-pulse"></div>
                             )}
-                            <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-primary-400'}`} />
-                            <span className="font-medium">{link.name}</span>
+                            <Icon className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-indigo-400'}`} />
+                            <span className="font-semibold tracking-wide">{link.name}</span>
                         </Link>
                     );
                 })}

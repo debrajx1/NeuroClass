@@ -36,16 +36,16 @@ const Login = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-            <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden transform transition-all hover:scale-[1.01]">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50/50 flex items-center justify-center p-4">
+            <div className="max-w-md w-full bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] overflow-hidden transform transition-all duration-500 hover:scale-[1.01] border border-slate-100 dark:border-slate-800">
                 <div className="p-8">
-                    <div className="flex justify-center mb-8">
-                        <div className="p-3 bg-primary-50 rounded-full">
-                            <BrainCircuit className="w-10 h-10 text-primary-600" />
+                    <div className="flex justify-center mb-10">
+                        <div className="p-4 bg-indigo-600 rounded-2xl shadow-lg shadow-indigo-600/20 rotate-3 hover:rotate-0 transition-transform duration-500">
+                            <BrainCircuit className="w-10 h-10 text-white" />
                         </div>
                     </div>
-                    <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">NeuroClass</h2>
-                    <p className="text-center text-slate-500 mb-8">AI-Powered Classroom Analytics</p>
+                    <h2 className="text-4xl font-extrabold text-center text-slate-800 mb-2 tracking-tight">NeuroClass</h2>
+                    <p className="text-center font-semibold text-indigo-500 uppercase text-[10px] tracking-[0.2em] mb-10">AI-Powered Classroom Analytics</p>
 
                     {error && (
                         <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 text-center animate-pulse">

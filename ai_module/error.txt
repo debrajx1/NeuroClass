@@ -1,0 +1,77 @@
+﻿..\.venv\Scripts\python.exe : 
+Traceback (most recent call last):
+At line:1 char:1
++ ..\.venv\Scripts\python.exe 
+main.py 2>&1 | Out-File -FilePath 
+error.t ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~
+    + CategoryInfo          : Not 
+   Specified: (Traceback (most r  
+  ecent call last)::String) [],   
+  RemoteException
+    + FullyQualifiedErrorId : Nat 
+   iveCommandError
+ 
+  File "C:\Users\debra\OneDrive\De
+sktop\NeuroClass\.venv\Lib\site-pa
+ckages\retinaface\commons\package_
+utils.py", line 19, in 
+validate_for_keras3
+    import tf_keras
+ModuleNotFoundError: No module 
+named 'tf_keras'
+
+The above exception was the 
+direct cause of the following 
+exception:
+
+Traceback (most recent call last):
+  File "C:\Users\debra\OneDrive\De
+sktop\NeuroClass\ai_module\main.py
+", line 13, in <module>
+    from deepface import DeepFace
+  File "C:\Users\debra\OneDrive\De
+sktop\NeuroClass\.venv\Lib\site-pa
+ckages\deepface\DeepFace.py", 
+line 22, in <module>
+    from deepface.modules import (
+    ...<9 lines>...
+    )
+  File "C:\Users\debra\OneDrive\De
+sktop\NeuroClass\.venv\Lib\site-pa
+ckages\deepface\modules\modeling.p
+y", line 19, in <module>
+    from 
+deepface.models.face_detection 
+import (
+    ...<10 lines>...
+    )
+  File "C:\Users\debra\OneDrive\De
+sktop\NeuroClass\.venv\Lib\site-pa
+ckages\deepface\models\face_detect
+ion\RetinaFace.py", line 6, in 
+<module>
+    from retinaface import 
+RetinaFace as rf
+  File "C:\Users\debra\OneDrive\De
+sktop\NeuroClass\.venv\Lib\site-pa
+ckages\retinaface\RetinaFace.py", 
+line 20, in <module>
+    package_utils.validate_for_ker
+as3()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~^^
+  File "C:\Users\debra\OneDrive\De
+sktop\NeuroClass\.venv\Lib\site-pa
+ckages\retinaface\commons\package_
+utils.py", line 24, in 
+validate_for_keras3
+    raise ValueError(
+    ...<3 lines>...
+    ) from err
+ValueError: You have tensorflow 
+2.20.0 and this requires tf-keras 
+package. Please run `pip install 
+tf-keras` or downgrade your 
+tensorflow.

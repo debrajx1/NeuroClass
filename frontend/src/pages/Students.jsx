@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Users, Plus, Upload, Trash2, Edit2, X, Crop as CropIcon, Check } from 'lucide-react';
+import { Users, Plus, Upload, Trash2, Edit2, X, Crop as CropIcon, Check, FileText, FileCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
+import Loader from '../components/Loader';
+import { CardSkeleton } from '../components/Skeleton';
 
 const Students = () => {
     const [students, setStudents] = useState([]);
@@ -11,6 +14,7 @@ const Students = () => {
     const [isAdding, setIsAdding] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [editId, setEditId] = useState(null);
+    const navigate = useNavigate();
     const [previewUrl, setPreviewUrl] = useState('');
     const [submitLoading, setSubmitLoading] = useState(false);
 
@@ -195,7 +199,21 @@ const Students = () => {
         setPreviewUrl('');
     };
 
-    if (loading) return <div className="h-full w-full flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div></div>;
+    if (loading) {
+        return (
+            <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="space-y-2">
+                        <div className="h-8 w-64 bg-slate-200 dark:bg-slate-800 animate-pulse rounded-lg"></div>
+                        <div className="h-4 w-48 bg-slate-100 dark:bg-slate-900 animate-pulse rounded-lg"></div>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {[...Array(8)].map((_, i) => <CardSkeleton key={i} />)}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -371,12 +389,28 @@ const Students = () => {
                                 className="w-24 h-24 rounded-full object-cover border-4 border-slate-50 shadow-sm"
                                 onError={(e) => { e.target.src = 'https://via.placeholder.com/150' }}
                             />
-                            <div className="absolute -bottom-2 -right-2 bg-green-500 w-6 h-6 rounded-full border-4 border-white flex items-center justify-center">
+                            <div className="absolute -bottom-2 -right-2 bg-green-500 w-6 h-6 rounded-full border-4 border-white flex items-center justify-center shadow-sm">
                                 {/* Simulated status indicator */}
                             </div>
                         </div>
                         <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{student.name}</h3>
-                        <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">Reg No: {student.rollNumber}</p>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm mb-3">Reg No: {student.rollNumber}</p>
+                        <button
+                            onClick={() => navigate('/attendance')}
+                            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-3 py-1.5 rounded-full mb-3 flex items-center gap-1.5 transition-colors"
+                        >
+                            <FileCheck className="w-3.5 h-3.5" /> View Attendance
+                        </button>
+
+                        {/* Gamification Stats */}
+                        <div className="flex gap-2 mb-4">
+                            <div className="flex items-center px-3 py-1 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 rounded-full text-xs font-bold shadow-sm">
+                                🟡 {student.focusCoins || 0} Coins
+                            </div>
+                            <div className="flex items-center px-3 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800 rounded-full text-xs font-bold shadow-sm">
+                                🔥 {student.focusStreak || 0} Streak
+                            </div>
+                        </div>
 
                         <div className="w-full pt-4 mt-auto border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
                             <span className="text-xs font-medium px-2 py-1 bg-slate-100 text-slate-600 dark:text-slate-300 rounded-md">

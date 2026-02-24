@@ -25,6 +25,14 @@ const StudentSchema = new mongoose.Schema({
     faceEncoding: {
         type: [Number], // Array of floats representing the face features
         required: false, // Make it optional initially
+    },
+    focusCoins: {
+        type: Number,
+        default: 0
+    },
+    focusStreak: {
+        type: Number,
+        default: 0
     }
 }, { timestamps: true });
 

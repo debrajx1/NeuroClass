@@ -76,8 +76,38 @@ router.post('/events', requireApiKey, async (req, res) => {
         // Populate student names if studentRef exists before emitting
         const populatedEvents = await Event.populate(insertedEvents, {
             path: 'studentRef',
-            select: 'name rollNumber imageUrl'
+            select: 'name rollNumber imageUrl focusCoins focusStreak'
         });
+
+        // Focus Coins and Streak Logic
+        const studentUpdates = {};
+        for (let ev of eventsToInsert) {
+            if (ev.studentRef) {
+                const sId = ev.studentRef.toString();
+                if (!studentUpdates[sId]) studentUpdates[sId] = { attentive: 0, distracted: 0 };
+
+                if (['attentive', 'using laptop', 'reading book'].includes(ev.state)) {
+                    studentUpdates[sId].attentive += 1;
+                } else if (['phone', 'sleeping', 'distracted', 'looking away'].includes(ev.state)) {
+                    studentUpdates[sId].distracted += 1;
+                }
+            }
+        }
+
+        for (const [studentId, counts] of Object.entries(studentUpdates)) {
+            if (counts.attentive > 0) {
+                // Focus points: +2 for each attentive block
+                await Student.findByIdAndUpdate(studentId, {
+                    $inc: { focusCoins: counts.attentive * 2, focusStreak: 1 }
+                });
+            }
+            if (counts.distracted > 0) {
+                // Reset streak on distraction
+                await Student.findByIdAndUpdate(studentId, {
+                    $set: { focusStreak: 0 }
+                });
+            }
+        }
 
         // Find teacher for this session to emit to the correct room
         const session = await Session.findById(sessionId);

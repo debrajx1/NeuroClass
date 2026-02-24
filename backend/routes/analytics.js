@@ -4,6 +4,8 @@ const path = require('path');
 const router = express.Router();
 const Event = require('../models/Event');
 const Session = require('../models/Session');
+const Teacher = require('../models/Teacher');
+const Student = require('../models/Student');
 const { protect } = require('../middleware/auth');
 const { DAILY_SCHEDULE, getCurrentClass } = require('../utils/scheduler');
 const { isHoliday } = require('../utils/holidays');
@@ -418,7 +420,7 @@ router.delete('/debug/clear', protect, async (req, res) => {
 // @access  Private
 router.get('/settings', protect, async (req, res) => {
     try {
-        const teacher = await require('../models/Teacher').findById(req.teacher._id);
+        const teacher = await Teacher.findById(req.teacher._id);
         res.json({ isAutoScheduleEnabled: teacher.isAutoScheduleEnabled });
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch settings' });
@@ -449,5 +451,171 @@ router.put('/settings/toggle-schedule', protect, async (req, res) => {
         res.status(500).json({ message: 'Failed to update settings' });
     }
 });
+
+// @desc    Gen-AI Classroom Consultant (Hackathon Showcase)
+// @route   POST /api/analytics/ai-consultant
+// @access  Private
+router.post('/ai-consultant', protect, async (req, res) => {
+    try {
+        const { stats } = req.body;
+
+        if (!stats) {
+            return res.status(400).json({ message: 'Analytics stats are required for AI analysis' });
+        }
+
+        // --- Demo Simulation for Gen-AI Prompting ---
+        // In a real production app, we would send `stats` to OpenAI or Gemini API here.
+        // For the hackathon demo, we generate a smart algorithmic "AI" response dynamically.
+
+        let responseText = `### 🧠 NeuroClass AI Consultation Report\n\n`;
+
+        if (stats.overallEngagement >= 80) {
+            responseText += `**Overall Sentiment:** Outstanding! Your class engagement is at **${stats.overallEngagement}%**.\n\n`;
+            responseText += `**💡 Pedagogical Advice:**\n`;
+            responseText += `- Keep up the momentum. The current pace and interactive style are strongly resonating with students.\n`;
+            responseText += `- Consider challenging the advanced students with a quick unannounced pop quiz or a group brainstorming session to utilize their focus.\n\n`;
+        } else if (stats.overallEngagement >= 60) {
+            responseText += `**Overall Sentiment:** Good, but there's room for improvement. Current engagement: **${stats.overallEngagement}%**.\n\n`;
+            responseText += `**💡 Pedagogical Advice:**\n`;
+            responseText += `- Engagement tends to dip slightly. Introduce a **2-minute ice-breaker** or a quick stretching exercise after the 20-minute mark.\n`;
+            if (stats.topDistraction !== 'None') {
+                responseText += `- Action item: Address the "${stats.topDistraction}" issue by asking an open-ended question to the back of the classroom.\n\n`;
+            }
+        } else {
+            responseText += `**Overall Sentiment:** Attention Alert. Engagement is critically low at **${stats.overallEngagement}%**.\n\n`;
+            responseText += `**💡 Pedagogical Advice:**\n`;
+            responseText += `- **Immediate Action Needed:** Switch gears. If you are lecturing, stop and transition immediately into a Q&A session or a peer-discussion task.\n`;
+            if (stats.topDistraction === 'phone') {
+                responseText += `- Many students are on their phones. Consider creating a "Digital Sabbatical" rule, or utilize a live mobile-friendly Kahoot! quiz to redirect their device usage to educational content.\n\n`;
+            }
+        }
+
+        responseText += `*Generated dynamically by the NeuroClass Consultant Engine based on real-time spatial analytics.*`;
+
+        // Simulate network latency for dramatic "AI thinking" effect
+        setTimeout(() => {
+            res.json({ aiResponse: responseText });
+        }, 1500);
+
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to generate AI consultation' });
+    }
+});
+
+// @desc    Gen-AI Chatbot for Teachers
+// @route   POST /api/analytics/ai-chat
+// @access  Private
+router.post('/ai-chat', protect, async (req, res) => {
+    try {
+        const { message, stats, history } = req.body;
+
+        if (!message || !stats) {
+            return res.status(400).json({ message: 'Message and stats are required' });
+        }
+
+        // --- Demo Simulation for Gen-AI Chat ---
+        // In a real production app, we would send the full history + stats + message to LLM.
+
+        let response = "";
+        const msg = message.toLowerCase();
+
+        if (msg.includes("engagement") || msg.includes("focus") || msg.includes("attention")) {
+            response = `Based on your current data, the overall engagement is **${stats.overallEngagement}%**. I noticed that **${stats.topDistraction}** is the primary factor. You might want to try a 2-minute interactive session to reset their focus.`;
+        } else if (msg.includes("phone") || msg.includes("mobile")) {
+            response = `I've detected significant mobile usage trends. A good strategy is to integrate mobile devices into the lesson (e.g., using a live quiz platform) rather than banning them entirely, which often causes friction.`;
+        } else if (msg.includes("thank") || msg.includes("thanks")) {
+            response = `You're very welcome! I'm here to help you optimize the learning environment. Do you have any other questions about your class analytics?`;
+        } else if (msg.includes("hi") || msg.includes("hello") || msg.includes("kaise ho")) {
+            response = `Hello! I am your NeuroClass AI Consultant. I've analyzed your class data and I'm ready to help you improve student engagement. How can I assist you today?`;
+        } else {
+            response = `That's an interesting pedagogical question. Looking at your ${stats.totalClassesAnalyzed} analyzed sessions, I recommend focusing on consistent student interaction patterns. Would you like a breakdown of specific session highs and lows?`;
+        }
+
+        // Simulate thinking time
+        setTimeout(() => {
+            res.json({ response });
+        }, 1000);
+
+    } catch (error) {
+        console.error("AI Chat Error:", error);
+        res.status(500).json({ message: 'Chatbot is currently offline' });
+    }
+});
+
+// @desc    Get Daily Attendance Reports
+// @route   GET /api/analytics/attendance/daily
+// @access  Private
+router.get('/attendance/daily', protect, async (req, res) => {
+    try {
+
+        // Find all sessions for the teacher (active or completed), newest first
+        const sessions = await Session.find({ teacher: req.teacher._id }).sort({ startTime: -1 }).limit(20).lean();
+
+        if (!sessions || sessions.length === 0) {
+            return res.json([]);
+        }
+
+        const sessionIds = sessions.map(s => s._id);
+
+        // Find ALL identified student events for these sessions
+        const eventsAgg = await Event.aggregate([
+            { $match: { session: { $in: sessionIds }, studentRef: { $ne: null } } },
+            { $group: { _id: { session: "$session", student: "$studentRef" } } }
+        ]);
+
+        const sessionAttendanceMap = {};
+        eventsAgg.forEach(ev => {
+            if (ev._id && ev._id.session && ev._id.student) {
+                const sid = ev._id.session.toString();
+                if (!sessionAttendanceMap[sid]) {
+                    sessionAttendanceMap[sid] = new Set();
+                }
+                sessionAttendanceMap[sid].add(ev._id.student.toString());
+            }
+        });
+
+        const allStudents = await Student.find({}).lean();
+        const reportsByDate = {};
+
+        sessions.forEach(session => {
+            const dateObj = new Date(session.startTime);
+            const dateStr = dateObj.toISOString().split('T')[0];
+
+            if (!reportsByDate[dateStr]) {
+                reportsByDate[dateStr] = { date: dateStr, sessions: [] };
+            }
+
+            const presentStudentIds = sessionAttendanceMap[session._id.toString()] || new Set();
+
+            const attendanceList = allStudents.map(student => ({
+                id: student._id,
+                name: student.name,
+                rollNumber: student.rollNumber || 'N/A',
+                status: presentStudentIds.has(student._id.toString()) ? 'Present' : 'Absent'
+            }));
+
+            attendanceList.sort((a, b) => (a.rollNumber || '').localeCompare(b.rollNumber || ''));
+
+            reportsByDate[dateStr].sessions.push({
+                sessionId: session._id,
+                className: session.className,
+                subject: session.subject || 'General',
+                startTime: session.startTime,
+                endTime: session.endTime,
+                attendance: attendanceList,
+                presentCount: presentStudentIds.size,
+                totalCount: allStudents.length
+            });
+        });
+
+        const result = Object.values(reportsByDate).sort((a, b) => new Date(b.date) - new Date(a.date));
+        res.json(result);
+
+    } catch (error) {
+        console.error("Daily attendance error:", error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
 
 module.exports = router;

@@ -8,6 +8,8 @@ import { Clock, Smartphone, AlertTriangle, Download, ArrowLeft, Users, Calendar,
 import { format, differenceInSeconds } from 'date-fns';
 import { saveAs } from 'file-saver';
 import toast from 'react-hot-toast';
+import Loader from '../components/Loader';
+import { CardSkeleton, ChartSkeleton } from '../components/Skeleton';
 
 const STATS_COLORS = {
     attentive: '#22c55e',
@@ -83,7 +85,26 @@ const Report = () => {
     };
 
     if (loading) {
-        return <div className="p-12 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div></div>;
+        return (
+            <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+                <div className="h-6 w-32 bg-slate-200 dark:bg-slate-800 animate-pulse rounded-lg"></div>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="space-y-2">
+                        <div className="h-8 w-64 bg-slate-200 dark:bg-slate-800 animate-pulse rounded-lg"></div>
+                        <div className="h-4 w-96 bg-slate-100 dark:bg-slate-900 animate-pulse rounded-lg mt-2"></div>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    {[...Array(4)].map((_, i) => <CardSkeleton key={i} />)}
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-2">
+                        <ChartSkeleton />
+                    </div>
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 h-full min-h-[400px] animate-pulse border border-slate-100 dark:border-slate-800 shadow-sm"></div>
+                </div>
+            </div>
+        );
     }
 
     const pieData = summary ? [

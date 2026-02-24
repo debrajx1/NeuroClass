@@ -2,8 +2,10 @@ import React, { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
 import { format, differenceInMinutes, differenceInSeconds } from 'date-fns';
 import { AuthContext } from '../context/AuthContext';
-import { Users, Search, Calendar, ChevronRight, Video, BookOpen, Info, X } from 'lucide-react';
+import { Users, Search, Calendar, ChevronRight, Video, BookOpen, Info, X, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import Loader from '../components/Loader';
+import { TableSkeleton } from '../components/Skeleton';
 
 const Sessions = () => {
     const { user } = useContext(AuthContext);
@@ -72,7 +74,8 @@ const Sessions = () => {
             }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            toast.success("Camera is starting! Head to Dashboard to view.");
+
+            toast.success("Camera is starting! Redirecting to Dashboard...");
             setIsModalOpen(false);
             setNewSessionName('');
             setNewSessionSubject('');
@@ -80,7 +83,8 @@ const Sessions = () => {
             setTimeout(() => {
                 fetchSessions();
                 setIsStarting(false);
-            }, 3000);
+                navigate('/');
+            }, 1000);
         } catch (error) {
             console.error(error);
             toast.error("Failed to start session.");
@@ -123,10 +127,10 @@ const Sessions = () => {
                         <div className="bg-gradient-to-r from-primary-600 to-indigo-700 px-6 py-5 relative">
                             <h2 className="text-xl font-bold text-white flex items-center">
                                 <Video className="w-5 h-5 mr-2 opacity-90" />
-                                Start Manual Session
+                                Initialize Session & Dashboard
                             </h2>
                             <p className="text-primary-100 text-sm mt-1">
-                                Override system schedule to record an ad-hoc class.
+                                Override system schedule to record an ad-hoc class and monitor live.
                             </p>
                             <button
                                 onClick={() => setIsModalOpen(false)}
@@ -217,7 +221,7 @@ const Sessions = () => {
                 </div>
 
                 {loading ? (
-                    <div className="p-12 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div></div>
+                    <TableSkeleton rows={8} />
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
@@ -263,15 +267,26 @@ const Sessions = () => {
                                             </span>
                                         </td>
                                         <td className="p-4 text-right">
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    navigate(`/report/${session._id}`, { state: { session } });
-                                                }}
-                                                className="text-primary-600 hover:text-primary-800 font-medium text-sm flex items-center justify-end transition-colors whitespace-nowrap ml-auto bg-primary-50 px-3 py-1.5 rounded-md group-hover:bg-primary-100"
-                                            >
-                                                View Report <ChevronRight className="w-4 h-4 ml-1" />
-                                            </button>
+                                            <div className="flex items-center justify-end gap-2">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navigate('/attendance');
+                                                    }}
+                                                    className="text-indigo-600 hover:text-indigo-800 font-medium text-sm flex items-center transition-colors whitespace-nowrap bg-indigo-50 px-3 py-1.5 rounded-md hover:bg-indigo-100"
+                                                >
+                                                    <FileText className="w-4 h-4 mr-1" /> Attendance
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navigate(`/report/${session._id}`, { state: { session } });
+                                                    }}
+                                                    className="text-primary-600 hover:text-primary-800 font-medium text-sm flex items-center transition-colors whitespace-nowrap bg-primary-50 px-3 py-1.5 rounded-md hover:bg-primary-100"
+                                                >
+                                                    Report <ChevronRight className="w-4 h-4 ml-1" />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

@@ -1,15 +1,17 @@
+import os
+os.environ['TF_USE_LEGACY_KERAS'] = '1'
+
 import cv2
 import requests
 import time
-import os
 import json
 import threading
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from ultralytics import YOLO
 
-os.environ['TF_USE_LEGACY_KERAS'] = '1'
-from deepface import DeepFace
+# Heavy imports moved to background thread to allow instant camera startup
+YOLO = None
+DeepFace = None
 
 import numpy as np
 import urllib.request
@@ -153,18 +155,49 @@ def cosine_distance(a, b):
         return 1.0
     return 1 - np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
+# Global AI state
+yolo_loaded = False
+facenet_loaded = False
+model = None
+
+def load_models_async():
+    """Background thread to heavy-load AI models without blocking the camera"""
+    global model, yolo_loaded, facenet_loaded, YOLO, DeepFace
+    
+    # Import heavy libraries only when thread starts
+    print("[INFO] Loading Heavy Libraries (Background)...")
+    from ultralytics import YOLO
+    
+    print("[INFO] Loading YOLOv8 Model (Background)...")
+    model = YOLO("yolov8n.pt")
+    yolo_loaded = True
+    
+    from deepface import DeepFace
+    print("[INFO] Loading FaceNet Model (Background)...")
+    try:
+        # Pre-warm deepface
+        DeepFace.build_model("Facenet")
+    except Exception as e:
+        print(f"[WARNING] Deepface pre-warm issue (will load on first face): {e}")
+
+    load_known_students()
+    facenet_loaded = True
+    print("[INFO] All AI Models loaded and ready!")
+
 def main():
     print("[INFO] Initializing Real-time Identity Tracking System...")
-    load_known_students()
     
-    print("[INFO] Loading YOLOv8 Model...")
-    # Load the Nano model for fast CPU/Edge inference
-    model = YOLO("yolov8n.pt") 
+    # Start loading heavy models in the background
+    threading.Thread(target=load_models_async, daemon=True).start()
     
     session_id = start_session()
     
     # Initialize Camera
     cap = cv2.VideoCapture(0)
+    # Critical optimization: Set buffer size to 1 so we always grab the most recent frame
+    # This prevents the "lag" effect where OpenCV processes 5 seconds in the past.
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
     if not cap.isOpened():
         print("[ERROR] Cannot access webcam. Exiting.")
         return
@@ -173,6 +206,8 @@ def main():
     
     frame_count = 0
     identity_cache = {} # Maps tracker ID -> {name, student_ref}
+    cached_drawings = [] # Stores bounding boxes to draw on skipped frames for smooth UI
+
     while True:
         try:
             ret, frame = cap.read()
@@ -185,6 +220,14 @@ def main():
             
             frame_count += 1
             
+            # Show loading overlay until basic AI models (YOLO) are ready
+            if not yolo_loaded:
+                cv2.putText(frame, "Starting Camera... Please wait.", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
+                cv2.imshow("Privacy-Preserving Classroom Analysis", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+                continue
+            
             # Periodically poll backend to see if session was closed by Teacher
             if frame_count % 30 == 0:
                 try:
@@ -192,13 +235,33 @@ def main():
                     if status_res.status_code == 200 and status_res.json().get("status") == "completed":
                         print("[INFO] Session remotely closed by Teacher Dashboard. Shutting down camera...")
                         break
-                except Exception as e:
-                    pass # Ignore polling errors and keep running
+                except requests.exceptions.RequestException as e:
+                    print(f"[WARNING] Backend disconnected or timeout during status check: {e}")
+                    pass # Ignore polling errors and keep running so live class isn't interrupted
             
-            # Process every Nth frame to save CPU
-            if frame_count % 5 != 0:
+            # High performance mode: Process every 6th frame to save massive CPU
+            # while keeping detection responsive enough for presentations
+            if frame_count % 6 != 0:
+                # Draw cached boxes to keep the video feed looking perfectly smooth at 30 FPS
+                for draw in cached_drawings:
+                    cv2.rectangle(frame, draw['pt1'], draw['pt2'], draw['color'], 2)
+                    cv2.putText(frame, draw['text'], draw['text_org'], cv2.FONT_HERSHEY_SIMPLEX, 0.5, draw['color'], 2)
+                
+                cv2.imshow("Privacy-Preserving Classroom Analysis", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
                 continue
                 
+            # Resize the frame before YOLO gets it to dramatically lower inference time
+            # A 640px width is plenty for YOLO to detect people and objects.
+            render_frame = frame.copy()
+            # If camera gives 1080p, scale it down.
+            h, w = frame.shape[:2]
+            scale = 1.0
+            if w > 640:
+                scale = 640.0 / w
+                frame = cv2.resize(frame, (640, int(h * scale)))
+
             # Run YOLO with tracking enabled and a STRICT confidence threshold
             # classes: 0 = person, 67 = cell phone, 73 = book, 63 = laptop
             # Adding conf=0.65 completely eliminates most false positives like "fans" or "chairs" detected as humans
@@ -208,6 +271,8 @@ def main():
             detected_phones = []
             detected_laptops = []
             detected_books = []
+            
+            cached_drawings = [] # Clear old drawing cache for this new inference cycle
 
             if results and results[0].boxes:
                 boxes = results[0].boxes.xyxy.cpu().numpy()
@@ -264,7 +329,7 @@ def main():
                                 state = "reading book"
                                 break
 
-                    # Check for talking (if closely adjacent to another person)
+                     # Check for talking (if closely adjacent to another person)
                     if state in ["attentive", "using laptop", "reading book"]: # Can talk while doing these
                         c_x = (x1 + x2) / 2
                         c_y = (y1 + y2) / 2
@@ -274,7 +339,8 @@ def main():
                             oc_x = (ox1 + ox2) / 2
                             oc_y = (oy1 + oy2) / 2
                             # Close horizontally and vertically aligned
-                            if abs(c_y - oc_y) < h * 0.5 and abs(c_x - oc_x) < w * 1.5:
+                            # STRICTER CHECK: People must be extremely close (heads almost touching) to trigger "talking"
+                            if abs(c_y - oc_y) < h * 0.3 and abs(c_x - oc_x) < w * 1.0:
                                 state = "talking"
                                 break
                     
@@ -292,8 +358,8 @@ def main():
                         display_name = identity_cache[person['id']]['name']
                     
                     # 2. Only attempt fresh face recognition if looking up (not sleeping)
-                    # Run if not identified yet, or every 30 frames to check for changes
-                    if state != "sleeping" and (student_ref is None or frame_count % 30 == 0):
+                    # Run if not identified yet (we rely on YOLO tracking for persistence to save CPU)
+                    if facenet_loaded and state != "sleeping" and student_ref is None:
                         try:
                             # Make sure coords are within frame bounds
                             px1, py1 = max(0, int(x1)), max(0, int(y1))
@@ -306,25 +372,20 @@ def main():
                                 reps = DeepFace.represent(img_path=person_img, model_name="Facenet", enforce_detection=False)
                                 
                                 if reps and len(reps) > 0:
-                                    # Ensure it actually found a face and not just hair
-                                    face_conf = reps[0].get("face_confidence", 0)
+                                    face_encoding = reps[0]["embedding"]
                                     
-                                    # Looking Away detection: If DeepFace finds a face but confidence is extremely low, 
-                                    # it means the face profile is severely angled (looking completely sideways or backwards).
-                                    # This only triggers if they aren't already flagged for something else like a phone.
-                                    if face_conf > 0.6: 
-                                        face_encoding = reps[0]["embedding"]
-                                        
-                                        # Compare with known DB using cosine distance
-                                        distances = [cosine_distance(face_encoding, known_enc) for known_enc in known_face_encodings]
-                                        
-                                        best_match_index = np.argmin(distances)
-                                        
-                                        # STRICT Threshold: 0.45 instead of 0.85 to prevent misidentification on profile faces
-                                        if distances[best_match_index] < 0.45:
+                                    # Compare with known DB using cosine distance
+                                    distances = [cosine_distance(face_encoding, known_enc) for known_enc in known_face_encodings]
+                                    
+                                    best_match_index = np.argmin(distances)
+                                    
+                                    # STRICT Threshold: 0.45 instead of 0.85 to prevent misidentification on profile faces
+                                    if distances[best_match_index] < 0.45:
+                                        # Protect against IndexErrors if the known faces array gets out of sync
+                                        if best_match_index < len(known_face_metadata):
                                             matched_student = known_face_metadata[best_match_index]
-                                            student_ref = matched_student["_id"]
-                                            display_name = matched_student["name"]
+                                            student_ref = matched_student.get("_id")
+                                            display_name = matched_student.get("name", "Anonymous")
                                             
                                             # Cache identity to this bounding box ID
                                             identity_cache[person['id']] = {
@@ -332,10 +393,9 @@ def main():
                                                 'name': display_name
                                             }
                                         else:
-                                            # If not recognized, could be looking away or anomalous
                                             if state == "attentive": state = "looking away"
                                     else:
-                                        # Face is obscured or turned away heavily
+                                        # If not recognized, could be looking away or anomalous
                                         if state == "attentive": state = "looking away"
                         except Exception as e:
                             pass # Ignore crop/encode errors to keep stream running
@@ -350,12 +410,28 @@ def main():
                     })
                     
                     # Draw bounding box for visual debug
+                    # Scale boxes back UP to draw on the original un-resized render_frame
+                    if scale != 1.0:
+                        x1, y1, x2, y2 = x1/scale, y1/scale, x2/scale, y2/scale
+
                     color = (0, 255, 0) if state == "attentive" else (0, 0, 255)
-                    cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-                    cv2.putText(frame, f"{display_name} [{state}]", (int(x1), int(max(0, y1 - 10))), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    pt1 = (int(x1), int(y1))
+                    pt2 = (int(x2), int(y2))
+                    text_org = (int(x1), int(max(0, y1 - 10)))
+                    
+                    cached_drawings.append({
+                        'pt1': pt1,
+                        'pt2': pt2,
+                        'color': color,
+                        'text': f"{display_name} [{state}]",
+                        'text_org': text_org
+                    })
+                    
+                    cv2.rectangle(render_frame, pt1, pt2, color, 2)
+                    cv2.putText(render_frame, f"{display_name} [{state}]", text_org, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             
-            # Display the frame (For demo purposes; in prod this could be headless)
-            cv2.imshow("Privacy-Preserving Classroom Analysis", frame)
+            # Display the high-res render frame with scaled-up boxes
+            cv2.imshow("Privacy-Preserving Classroom Analysis", render_frame)
             
             # Push batch asynchronously if large enough
             if len(events_buffer) >= EVENT_BATCH_SIZE:
@@ -377,10 +453,10 @@ def main():
     
     # End session on backend
     try:
-        requests.put(f"{BACKEND_URL}/api/ingestion/session/{session_id}/end", headers=HEADERS)
+        requests.put(f"{BACKEND_URL}/api/ingestion/session/{session_id}/end", headers=HEADERS, timeout=3)
         print("[INFO] Session marked as completed.")
-    except Exception as e:
-        print(f"[ERROR] Failed to end session: {e}")
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] Failed to communicate end session to backend: {e}")
 
 if __name__ == "__main__":
     main()

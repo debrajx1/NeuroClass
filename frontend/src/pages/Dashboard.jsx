@@ -1,15 +1,18 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import axios from 'axios';
 import { AuthContext } from '../context/AuthContext';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell
 } from 'recharts';
-import { Users, Clock, Target, Smartphone, AlertTriangle, PlayCircle, StopCircle, Download, Camera, Calendar, BookOpen, GraduationCap, Activity, Flame, Settings } from 'lucide-react';
+import { Users, Clock, Target, Smartphone, AlertTriangle, PlayCircle, StopCircle, Download, Camera, Calendar, BookOpen, GraduationCap, Activity, Flame, Settings, FileCheck } from 'lucide-react';
 import { format, differenceInSeconds } from 'date-fns';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import { saveAs } from 'file-saver';
 import { useNavigate } from 'react-router-dom';
+import ClassroomHeatmap from '../components/ClassroomHeatmap';
+import Loader from '../components/Loader';
+import { CardSkeleton, ChartSkeleton, TableSkeleton } from '../components/Skeleton';
 
 const STATS_COLORS = {
     attentive: '#22c55e',       // Green
@@ -38,6 +41,10 @@ const Dashboard = () => {
     const [isHoliday, setIsHoliday] = useState(false);
     const [isAutoEnabled, setIsAutoEnabled] = useState(true);
     const [isStartingSession, setIsStartingSession] = useState(false);
+    const [attendanceStats, setAttendanceStats] = useState({ present: 0, total: 0 });
+
+    // Feature 4: Auto Nudge Tracker
+    const consecutiveDistractionsRef = useRef({});
 
     // Real-time Timer effect
     useEffect(() => {
@@ -75,6 +82,15 @@ const Dashboard = () => {
                 // First try to get an active session
                 const sessionRes = await axios.get('http://localhost:5000/api/analytics/session/active', config);
                 session = sessionRes.data;
+
+                // Load attendance stats for today
+                const attendanceRes = await axios.get('http://localhost:5000/api/analytics/attendance/daily', config);
+                if (attendanceRes.data.length > 0 && attendanceRes.data[0].sessions.length > 0) {
+                    const todaySessions = attendanceRes.data[0].sessions;
+                    const latest = todaySessions[0];
+                    setAttendanceStats({ present: latest.presentCount, total: latest.totalCount });
+                }
+
             } catch (err) {
                 // If no active session, try to get the latest completed one
                 try {
@@ -135,17 +151,56 @@ const Dashboard = () => {
         const interval = setInterval(fetchAnalytics, 10000);
 
         // Socket.IO Integration
-        const socket = io('http://localhost:5000');
+        const socket = io('http://localhost:5000', {
+            reconnectionDelayMax: 10000,
+            reconnection: true,
+            reconnectionAttempts: 10
+        });
 
         if (user && user._id) {
-            socket.on('connect', () => setIsSocketConnected(true));
-            socket.on('disconnect', () => setIsSocketConnected(false));
-
-            socket.emit('joinRoom', user._id);
+            socket.on('connect', () => {
+                console.log('Socket Connected');
+                setIsSocketConnected(true);
+                socket.emit('joinRoom', user._id);
+            });
+            socket.on('disconnect', () => {
+                console.log('Socket Disconnected');
+                setIsSocketConnected(false);
+            });
 
             socket.on('live-events', (data) => {
                 console.log('Received live events:', data);
                 if (data.events && data.events.length > 0) {
+                    // Feature 4: Auto-Nudge Tracker Logic
+                    data.events.forEach(ev => {
+                        const sId = ev.studentRef ? ev.studentRef._id : ev.anonymousId;
+                        const sName = ev.studentRef ? ev.studentRef.name : `Student`;
+
+                        if (['phone', 'sleeping', 'distracted'].includes(ev.state)) {
+                            consecutiveDistractionsRef.current[sId] = (consecutiveDistractionsRef.current[sId] || 0) + 1;
+
+                            // Trigger Nudge on 3 consecutive distraction readings
+                            if (consecutiveDistractionsRef.current[sId] === 3) {
+                                toast.custom((t) => (
+                                    <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-sm w-full bg-white dark:bg-slate-900 shadow-2xl rounded-2xl pointer-events-auto flex ring-1 ring-red-500/50 p-4 border border-red-100 overflow-hidden relative`}>
+                                        <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
+                                        <div className="flex items-start">
+                                            <div className="flex-shrink-0 pt-0.5 text-2xl">🚨</div>
+                                            <div className="ml-3 flex-1">
+                                                <p className="text-sm font-bold text-red-600 dark:text-red-400">Auto-Nudge Sent!</p>
+                                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                                    <strong>{sName}</strong> was distracted. A polite digital push to regain focus has been fired.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ), { duration: 5000, position: 'top-right' });
+                            }
+                        } else if (['attentive', 'using laptop', 'reading book'].includes(ev.state)) {
+                            consecutiveDistractionsRef.current[sId] = 0; // Reset streak
+                        }
+                    });
+
                     // Add new events to the top of our live feed, keeping max 20
                     setLiveEvents(prev => [...data.events, ...prev].slice(0, 20));
                     // Trigger a chart refresh to update scores
@@ -297,7 +352,28 @@ const Dashboard = () => {
         </div>
     );
 
-    if (loading) return <div className="h-full w-full flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div></div>;
+    if (loading) {
+        return (
+            <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="space-y-2">
+                        <div className="h-8 w-64 bg-slate-200 dark:bg-slate-800 animate-pulse rounded-lg"></div>
+                        <div className="h-4 w-96 bg-slate-100 dark:bg-slate-900 animate-pulse rounded-lg mt-2"></div>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {[...Array(4)].map((_, i) => <CardSkeleton key={i} />)}
+                </div>
+                <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 h-48 animate-pulse border border-slate-100 dark:border-slate-800 shadow-sm"></div>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="col-span-1 lg:col-span-2">
+                        <ChartSkeleton />
+                    </div>
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 h-full min-h-[400px] animate-pulse border border-slate-100 dark:border-slate-800 shadow-sm"></div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
@@ -401,6 +477,15 @@ const Dashboard = () => {
                     icon={Smartphone}
                     trend="-12% from average"
                     trendColor="text-green-600"
+                />
+                <StatCard
+                    title="Attendance Today"
+                    value={`${attendanceStats.present}/${attendanceStats.total}`}
+                    icon={FileCheck}
+                    trend="Automated AI Record"
+                    trendColor="text-blue-600"
+                    onClick={() => navigate('/attendance')}
+                    className="cursor-pointer hover:border-primary-300 transition-colors"
                 />
                 <StatCard
                     title="Top Distraction"
@@ -551,68 +636,77 @@ const Dashboard = () => {
 
             {/* Live Event Feed */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 mt-6">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center">
-                        <span className="relative flex h-3 w-3 mr-3">
-                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isSocketConnected ? 'bg-green-400' : 'bg-red-400'}`}></span>
-                            <span className={`relative inline-flex rounded-full h-3 w-3 ${isSocketConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                        </span>
-                        Live Student Feed (Identity Tracking)
-                    </h3>
-
-                    <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${isSocketConnected ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                        {isSocketConnected ? 'AI Connected' : 'AI Offline / Waiting'}
-                    </span>
-                </div>
-
-                {liveEvents.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 px-4 text-center bg-slate-50 dark:bg-slate-950/50 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700">
-                        <div className="w-16 h-16 bg-white dark:bg-slate-900 rounded-full flex items-center justify-center shadow-sm border border-slate-100 dark:border-slate-800 mb-4">
-                            <Camera className="w-8 h-8 text-slate-400" />
-                        </div>
-                        <h4 className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No Live Data Yet</h4>
-                        <p className="text-slate-500 dark:text-slate-400 text-sm max-w-sm">
-                            Click "Start Session" to connect the AI camera and begin tracking student engagement in real-time.
-                        </p>
-                    </div>
-                ) : (
-                    <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                        {liveEvents.map((ev, i) => (
-                            <div key={i} className="flex items-center p-3 hover:bg-slate-50 dark:bg-slate-950 rounded-lg border border-slate-100 dark:border-slate-800 transition-colors">
-                                {ev.studentRef ? (
-                                    <img src={ev.studentRef.imageUrl || 'https://via.placeholder.com/40'} className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-700" alt="Student" />
-                                ) : (
-                                    <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 dark:text-slate-400 font-bold">?</div>
-                                )}
-
-                                <div className="ml-4 flex-1">
-                                    <p className="font-semibold text-slate-800 dark:text-slate-100">
-                                        {ev.studentRef ? ev.studentRef.name : `Anonymous (${ev.anonymousId})`}
-                                        {ev.studentRef && <span className="text-xs text-slate-400 font-normal ml-2">Reg No: {ev.studentRef.rollNumber}</span>}
-                                    </p>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">{format(new Date(ev.timestamp), 'HH:mm:ss')}</p>
-                                </div>
-
-                                <div className="flex items-center">
-                                    <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize
-                                        ${ev.state === 'attentive' ? 'bg-green-100 text-green-700' :
-                                            ev.state === 'phone' ? 'bg-amber-100 text-amber-700' :
-                                                ev.state === 'talking' ? 'bg-blue-100 text-blue-700' :
-                                                    ev.state === 'using laptop' ? 'bg-cyan-100 text-cyan-700' :
-                                                        ev.state === 'reading book' ? 'bg-teal-100 text-teal-700' :
-                                                            ev.state === 'sleeping' ? 'bg-indigo-100 text-indigo-700' :
-                                                                ev.state === 'looking away' ? 'bg-rose-100 text-rose-700' :
-                                                                    'bg-red-100 text-red-700'}
-                                    `}>
-                                        {ev.state}
-                                    </span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
             </div>
 
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Heatmap Area */}
+                <div className="h-full">
+                    <ClassroomHeatmap liveEvents={liveEvents} />
+                </div>
+
+                {/* Live Student Feed */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col h-[500px]">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center">
+                            <span className="relative flex h-3 w-3 mr-3">
+                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isSocketConnected ? 'bg-green-400' : 'bg-red-400'}`}></span>
+                                <span className={`relative inline-flex rounded-full h-3 w-3 ${isSocketConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                            </span>
+                            Live Student Feed
+                        </h3>
+                        <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${isSocketConnected ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                            {isSocketConnected ? 'AI Connected' : 'AI Offline / Waiting'}
+                        </span>
+                    </div>
+
+                    {liveEvents.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center py-12 px-4 text-center bg-slate-50 dark:bg-slate-950/50 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700">
+                            <div className="w-16 h-16 bg-white dark:bg-slate-900 rounded-full flex items-center justify-center shadow-sm border border-slate-100 dark:border-slate-800 mb-4">
+                                <Camera className="w-8 h-8 text-slate-400" />
+                            </div>
+                            <h4 className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No Live Data Yet</h4>
+                            <p className="text-slate-500 dark:text-slate-400 text-sm max-w-sm">
+                                Click "Start Session" to connect the AI camera and begin tracking student engagement in real-time.
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                            {liveEvents.map((ev, i) => (
+                                <div key={i} className="flex items-center p-3 hover:bg-slate-50 dark:bg-slate-950 rounded-lg border border-slate-100 dark:border-slate-800 transition-colors">
+                                    {ev.studentRef ? (
+                                        <img src={ev.studentRef.imageUrl || 'https://via.placeholder.com/40'} className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-700" alt="Student" />
+                                    ) : (
+                                        <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 dark:text-slate-400 font-bold">?</div>
+                                    )}
+
+                                    <div className="ml-4 flex-1">
+                                        <p className="font-semibold text-slate-800 dark:text-slate-100">
+                                            {ev.studentRef ? ev.studentRef.name : `Anonymous (${ev.anonymousId})`}
+                                            {ev.studentRef && <span className="text-xs text-slate-400 font-normal ml-2">Reg No: {ev.studentRef.rollNumber}</span>}
+                                        </p>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">{format(new Date(ev.timestamp), 'HH:mm:ss')}</p>
+                                    </div>
+
+                                    <div className="flex items-center">
+                                        <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize
+                                        ${ev.state === 'attentive' ? 'bg-green-100 text-green-700' :
+                                                ev.state === 'phone' ? 'bg-amber-100 text-amber-700' :
+                                                    ev.state === 'talking' ? 'bg-blue-100 text-blue-700' :
+                                                        ev.state === 'using laptop' ? 'bg-cyan-100 text-cyan-700' :
+                                                            ev.state === 'reading book' ? 'bg-teal-100 text-teal-700' :
+                                                                ev.state === 'sleeping' ? 'bg-indigo-100 text-indigo-700' :
+                                                                    ev.state === 'looking away' ? 'bg-rose-100 text-rose-700' :
+                                                                        'bg-red-100 text-red-700'}
+                                    `}>
+                                            {ev.state}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
