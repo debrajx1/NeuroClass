@@ -3,3 +3,5 @@ ultralytics
 requests
 python-dotenv
 numpy
+deepface
+tf-keras
