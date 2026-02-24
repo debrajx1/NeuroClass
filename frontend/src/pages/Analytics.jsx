@@ -1,3 +1,4 @@
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { TrendingUp, BookOpen, Clock, Activity, Download, Send, Bot, User as UserIcon, MessageSquare, Sparkles } from 'lucide-react';

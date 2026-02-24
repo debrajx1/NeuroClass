@@ -1,3 +1,5 @@
+import React, { useState, useEffect } from 'react';
+import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell

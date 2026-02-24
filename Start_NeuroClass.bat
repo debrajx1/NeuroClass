@@ -19,9 +19,12 @@ timeout /t 2 /nobreak > nul
 echo [3/3] Starting AI Module (Python)...
 start "NeuroClass AI" cmd /k "cd ai_module && ..\.venv\Scripts\python.exe main.py"
 
+echo [4/4] Opening Dashboard...
+start http://localhost:5173
+
 echo.
 echo ===================================================
-echo All services have been launched in separate windows!
-echo You can now refresh your browser (http://localhost:5173).
+echo All services have been launched!
+echo The dashboard should open automatically in your browser.
 echo ===================================================
 pause

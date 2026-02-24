@@ -6,6 +6,7 @@ import {
     BarChart, Layout, Sparkles, Database, History, DownloadCloud, Trash2
 } from 'lucide-react';
 import api from '../api';
+import axios from 'axios';
 import toast from 'react-hot-toast';
 
 const Settings = () => {

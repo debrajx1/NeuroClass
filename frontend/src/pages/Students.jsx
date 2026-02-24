@@ -1,3 +1,4 @@
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import { Users, Plus, Upload, Trash2, Edit2, X, Crop as CropIcon, Check, FileText, FileCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
