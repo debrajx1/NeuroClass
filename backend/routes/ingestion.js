@@ -111,19 +111,28 @@ router.post('/events', requireApiKey, async (req, res) => {
             }
         }
 
+        const bulkOps = [];
         for (const [studentId, counts] of Object.entries(studentUpdates)) {
+            const update = {};
             if (counts.attentive > 0) {
-                // Focus points: +2 for each attentive block
-                await Student.findByIdAndUpdate(studentId, {
-                    $inc: { focusCoins: counts.attentive * 2, focusStreak: 1 }
-                });
+                update.$inc = { focusCoins: counts.attentive * 2, focusStreak: counts.attentive };
             }
             if (counts.distracted > 0) {
-                // Reset streak on distraction
-                await Student.findByIdAndUpdate(studentId, {
-                    $set: { focusStreak: 0 }
+                update.$set = { focusStreak: 0 };
+            }
+
+            if (Object.keys(update).length > 0) {
+                bulkOps.push({
+                    updateOne: {
+                        filter: { _id: studentId },
+                        update: update
+                    }
                 });
             }
+        }
+
+        if (bulkOps.length > 0) {
+            await Student.bulkWrite(bulkOps);
         }
 
         // Find teacher for this session to emit to the correct room

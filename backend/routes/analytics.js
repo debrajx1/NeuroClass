@@ -342,6 +342,8 @@ router.put('/session/:sessionId/end', protect, async (req, res) => {
         if (session.pid) {
             const { stopCameraProcess } = require('../utils/scheduler');
             stopCameraProcess(session.pid);
+        } else {
+            console.log(`[Analytics] No PID found to end session ${session._id}`);
         }
 
         res.json({ message: 'Session ended successfully' });
@@ -411,7 +413,8 @@ router.post('/session/start-camera', protect, async (req, res) => {
                 ...process.env,
                 TEACHER_ID: req.teacher._id.toString(),
                 SESSION_ID: session._id.toString(),
-                CLASS_NAME: className
+                CLASS_NAME: className,
+                CAMERA_INDEX: (await Teacher.findById(req.teacher._id)).cameraIndex.toString()
             }
         });
 
@@ -452,7 +455,10 @@ router.delete('/debug/clear', protect, async (req, res) => {
 router.get('/settings', protect, async (req, res) => {
     try {
         const teacher = await Teacher.findById(req.teacher._id);
-        res.json({ isAutoScheduleEnabled: teacher.isAutoScheduleEnabled });
+        res.json({
+            isAutoScheduleEnabled: teacher.isAutoScheduleEnabled,
+            cameraIndex: teacher.cameraIndex || 0
+        });
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch settings' });
     }
@@ -483,6 +489,27 @@ router.put('/settings/toggle-schedule', protect, async (req, res) => {
     }
 });
 
+// @desc    Update Camera Index Preference
+// @route   PUT /api/analytics/settings/camera
+// @access  Private
+router.put('/settings/camera', protect, async (req, res) => {
+    try {
+        const { cameraIndex } = req.body;
+
+        await Teacher.findByIdAndUpdate(
+            req.teacher._id,
+            { cameraIndex: parseInt(cameraIndex) }
+        );
+
+        res.json({
+            message: `Camera source updated to Index ${cameraIndex}`,
+            cameraIndex: parseInt(cameraIndex)
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update camera settings' });
+    }
+});
+
 // @desc    Gen-AI Classroom Consultant (Hackathon Showcase)
 // @route   POST /api/analytics/ai-consultant
 // @access  Private
@@ -491,85 +518,98 @@ router.post('/ai-consultant', protect, async (req, res) => {
         const { stats } = req.body;
 
         if (!stats) {
-            return res.status(400).json({ message: 'Analytics stats are required for AI analysis' });
+            return res.status(400).json({ message: 'Analytics stats are required' });
         }
 
-        // --- Demo Simulation for Gen-AI Prompting ---
-        // In a real production app, we would send `stats` to OpenAI or Gemini API here.
-        // For the hackathon demo, we generate a smart algorithmic "AI" response dynamically.
+        // --- Advanced Pedagogical Engine ---
+        let report = `### 🧠 NeuroClass AI Consultation Report\n\n`;
 
-        let responseText = `### 🧠 NeuroClass AI Consultation Report\n\n`;
-
-        if (stats.overallEngagement >= 80) {
-            responseText += `**Overall Sentiment:** Outstanding! Your class engagement is at **${stats.overallEngagement}%**.\n\n`;
-            responseText += `**💡 Pedagogical Advice:**\n`;
-            responseText += `- Keep up the momentum. The current pace and interactive style are strongly resonating with students.\n`;
-            responseText += `- Consider challenging the advanced students with a quick unannounced pop quiz or a group brainstorming session to utilize their focus.\n\n`;
-        } else if (stats.overallEngagement >= 60) {
-            responseText += `**Overall Sentiment:** Good, but there's room for improvement. Current engagement: **${stats.overallEngagement}%**.\n\n`;
-            responseText += `**💡 Pedagogical Advice:**\n`;
-            responseText += `- Engagement tends to dip slightly. Introduce a **2-minute ice-breaker** or a quick stretching exercise after the 20-minute mark.\n`;
-            if (stats.topDistraction !== 'None') {
-                responseText += `- Action item: Address the "${stats.topDistraction}" issue by asking an open-ended question to the back of the classroom.\n\n`;
-            }
+        // 1. Overall Sentiment
+        const score = stats.overallEngagement || 0;
+        if (score >= 80) {
+            report += `**Overall Sentiment:** 🌟 **High-Impact Learning**. Your students are deeply engaged.\n`;
+        } else if (score >= 60) {
+            report += `**Overall Sentiment:** 📈 **Steady Focus**. Consistent engagement, but with minor fluctuations.\n`;
         } else {
-            responseText += `**Overall Sentiment:** Attention Alert. Engagement is critically low at **${stats.overallEngagement}%**.\n\n`;
-            responseText += `**💡 Pedagogical Advice:**\n`;
-            responseText += `- **Immediate Action Needed:** Switch gears. If you are lecturing, stop and transition immediately into a Q&A session or a peer-discussion task.\n`;
-            if (stats.topDistraction === 'phone') {
-                responseText += `- Many students are on their phones. Consider creating a "Digital Sabbatical" rule, or utilize a live mobile-friendly Kahoot! quiz to redirect their device usage to educational content.\n\n`;
-            }
+            report += `**Overall Sentiment:** ⚠️ **Engagement Alert**. Significant focus drops detected.\n`;
         }
 
-        responseText += `*Generated dynamically by the NeuroClass Consultant Engine based on real-time spatial analytics.*`;
+        // 2. Trend Analysis
+        report += `\n**📊 Key Trends:**\n`;
+        if (stats.topDistraction !== 'None') {
+            const adviceMap = {
+                'phone': 'Digital distraction is the primary focus barrier.',
+                'talking': 'Peer interaction is overriding the lesson focus.',
+                'sleeping': 'Cognitive fatigue detected in significant student clusters.',
+                'distracted': 'General environmental distractions are high.'
+            };
+            report += `- **Primary Barrier:** ${adviceMap[stats.topDistraction.toLowerCase()] || 'Mixed distractions detected.'}\n`;
+        }
 
-        // Simulate network latency for dramatic "AI thinking" effect
+        // 3. Actionable Pedagogical Advice
+        report += `\n**💡 Actionable Strategy:**\n`;
+        if (score < 60) {
+            report += `- **The 2-Minute Reset:** Stop the lecture immediately. Facilitate a quick "Pair-Share" session to break the monotony.\n`;
+            report += `- **Interactive Pivot:** Use a live poll or a competitive quiz to gamify the remaining 15 minutes.\n`;
+        } else if (stats.topDistraction === 'phone') {
+            report += `- **Digital Sabbatical:** If phone usage is high, announce a 5-minute dedicated "Device Research" segment to align their phone use with the topic.\n`;
+        } else if (score >= 80) {
+            report += `- **Momentum Boost:** Introduce a 'Challenge Question' to target the top 10% of engaged students while others consolidate.\n`;
+        } else {
+            report += `- **Visual Anchor:** Use a quick video or high-energy visual aid to reset the collective focus.\n`;
+        }
+
+        report += `\n*Advice generated based on real-time spatial analytics and pedagogical best practices.*`;
+
         setTimeout(() => {
-            res.json({ aiResponse: responseText });
-        }, 1500);
+            res.json({ aiResponse: report });
+        }, 1200);
 
     } catch (error) {
-        res.status(500).json({ message: 'Failed to generate AI consultation' });
+        res.status(500).json({ message: 'Consultant failed to generate advice' });
     }
 });
 
-// @desc    Gen-AI Chatbot for Teachers
+// @desc    Gen-AI Chatbot for Teachers (Full Repository of Pedagogical Info)
 // @route   POST /api/analytics/ai-chat
 // @access  Private
 router.post('/ai-chat', protect, async (req, res) => {
     try {
-        const { message, stats, history } = req.body;
+        const { message, stats } = req.body;
+        if (!message) return res.status(400).json({ message: 'Message required' });
 
-        if (!message || !stats) {
-            return res.status(400).json({ message: 'Message and stats are required' });
-        }
-
-        // --- Demo Simulation for Gen-AI Chat ---
-        // In a real production app, we would send the full history + stats + message to LLM.
-
-        let response = "";
         const msg = message.toLowerCase();
+        let response = "";
 
-        if (msg.includes("engagement") || msg.includes("focus") || msg.includes("attention")) {
-            response = `Based on your current data, the overall engagement is **${stats.overallEngagement}%**. I noticed that **${stats.topDistraction}** is the primary factor. You might want to try a 2-minute interactive session to reset their focus.`;
-        } else if (msg.includes("phone") || msg.includes("mobile")) {
-            response = `I've detected significant mobile usage trends. A good strategy is to integrate mobile devices into the lesson (e.g., using a live quiz platform) rather than banning them entirely, which often causes friction.`;
-        } else if (msg.includes("thank") || msg.includes("thanks")) {
-            response = `You're very welcome! I'm here to help you optimize the learning environment. Do you have any other questions about your class analytics?`;
-        } else if (msg.includes("hi") || msg.includes("hello") || msg.includes("kaise ho")) {
-            response = `Hello! I am your NeuroClass AI Consultant. I've analyzed your class data and I'm ready to help you improve student engagement. How can I assist you today?`;
-        } else {
-            response = `That's an interesting pedagogical question. Looking at your ${stats.totalClassesAnalyzed} analyzed sessions, I recommend focusing on consistent student interaction patterns. Would you like a breakdown of specific session highs and lows?`;
+        // Strategy Engine
+        if (msg.includes("sleep") || msg.includes("so raha")) {
+            response = "For drowsy students, I recommend a **'Micro-Break'**. Ask the class to stand up for a quick 30-second stretch. It increases blood flow and resets the brain's focus-clock. 🏃‍♂️";
+        }
+        else if (msg.includes("phone") || msg.includes("mobile")) {
+            response = "High phone usage often indicates 'Content Disconnect'. Try a **'Digital Blitz'**: give them 2 minutes to find one specific fact on their phones related to your topic. It turns the distraction into a tool. 📱";
+        }
+        else if (msg.includes("talking") || msg.includes("baat")) {
+            response = "Peer-talking is 'Social Energy' being misdirected. Channels it into a **'Blitz-Discussion'**: 1 minute to explain the last concept to their neighbor. 🗣️";
+        }
+        else if (msg.includes("interesting") || msg.includes("boring") || msg.includes("bor")) {
+            response = "To increase interest, use the **'Hook Method'**. Start the next segment with a controversial question or a 'Why does this matter?' real-world example. 🎣";
+        }
+        else if (msg.includes("engagement") || msg.includes("focus")) {
+            response = `Your current engagement is **${stats?.overallEngagement || 0}%**. My tip: Try the **'Chunking Technique'**—break the next 20 minutes into two 8-minute high-focus bursts with a 2-minute 'Ask Me Anything' gap. 📉`;
+        }
+        else if (msg.includes("hello") || msg.includes("hi") || msg.includes("help")) {
+            response = "Hello! I am your **NeuroClass Pedagogical Assistant**. I can help you manage classroom behavior, increase focus, or give you specific teaching strategies based on your current stats. What's on your mind? 😊";
+        }
+        else {
+            response = "That's a valid concern. From a pedagogical standpoint, maintaining a **Dynamic Pace** (shifting between talking, showing, and doing) is the best way to keep this class's attention based on their current tracking. 🧠";
         }
 
-        // Simulate thinking time
         setTimeout(() => {
             res.json({ response });
-        }, 1000);
+        }, 800);
 
     } catch (error) {
-        console.error("AI Chat Error:", error);
-        res.status(500).json({ message: 'Chatbot is currently offline' });
+        res.status(500).json({ message: 'Chatbot is resting' });
     }
 });
 

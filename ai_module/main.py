@@ -1,3 +1,5 @@
+import cv2
+import numpy as np
 import os
 import time
 import json
@@ -5,8 +7,6 @@ import threading
 
 # Global AI placeholders for deferred loading
 requests = None
-np = None
-cv2 = None
 
 # Global AI state
 yolo_loaded = False
@@ -22,9 +22,43 @@ timezone = None
 known_face_encodings = []
 known_face_metadata = []
 
+class VideoStream:
+    def __init__(self, src=0):
+        self.stream = cv2.VideoCapture(src, cv2.CAP_DSHOW)
+        self.stream.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        (self.grabbed, self.frame) = self.stream.read()
+        self.stopped = False
+        self.lock = threading.Lock()
+
+    def start(self):
+        threading.Thread(target=self.update, args=(), daemon=True).start()
+        return self
+
+    def update(self):
+        while True:
+            if self.stopped: return
+            (grabbed, frame) = self.stream.read()
+            with self.lock:
+                self.grabbed = grabbed
+                self.frame = frame
+
+    def read(self):
+        with self.lock:
+            return self.grabbed, self.frame
+
+    def stop(self):
+        self.stopped = True
+
+def smooth_box(old_box, new_box, alpha=0.6):
+    if old_box is None: return new_box
+    return [old_box[i] * (1 - alpha) + new_box[i] * alpha for i in range(4)]
+
 def load_models_async():
     """Background thread to heavy-load AI models without blocking the camera"""
     global model, yolo_loaded, facenet_loaded, YOLO, DeepFace, load_dotenv, datetime, timezone
+    
+    import numpy as np
+    import cv2
     
     print("[INFO] Loading Heavy Libraries (Background)...")
     try:
@@ -44,6 +78,12 @@ def load_models_async():
         if not os.path.exists(model_path):
              model_path = "yolov8n.pt" # Fallback to current dir or auto-download
         model = YOLO(model_path)
+        
+        # Warm-up inference to prime the engine
+        print("[INFO] Warming up AI Engine...")
+        dummy_frame = np.zeros((640, 640, 3), dtype=np.uint8)
+        model.predict(dummy_frame, verbose=False)
+        
         yolo_loaded = True
         
         print("[INFO] Loading DeepFace (optional feature)...")
@@ -172,17 +212,16 @@ def main():
     global requests, np, cv2
     print("[INFO] NeuroClass AI Module Started.")
     
-    # Immediate library loading (lightweight)
     import requests as _requests
-    import numpy as _np
-    import cv2 as _cv2
     requests = _requests
-    np = _np
-    cv2 = _cv2
     
     from dotenv import load_dotenv
     env_path = os.path.join(os.path.dirname(__file__), '.env')
     load_dotenv(dotenv_path=env_path)
+
+    # Start loading heavy models IMMEDIATELY in the background
+    # This happens while we are polling for a session
+    threading.Thread(target=load_models_async, daemon=True).start()
 
     # Session Polling Loop
     session_id = None
@@ -194,21 +233,18 @@ def main():
     
     print(f"[INFO] Active Session Detected: {session_id}. Initializing AI Engine...")
     
-    # Start loading heavy models in the background
-    threading.Thread(target=load_models_async, daemon=True).start()
     
-    # Initialize Camera
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-    if not cap.isOpened():
-        print("[ERROR] Cannot access webcam. Exiting.")
-        return
+    # Initialize Camera (Threaded)
+    camera_idx = int(os.getenv("CAMERA_INDEX", 0))
+    print(f"[INFO] Initializing Threaded Camera with index: {camera_idx}")
+    vs = VideoStream(src=camera_idx).start()
+    time.sleep(1.0) # Hub for camera driver
 
     print("[INFO] Camera stream active. Press 'q' to quit.")
     
-    frame_count = 0
+    frame_count: int = 0
     identity_cache = {} 
+    box_cache = {} # Track previous boxes for smoothing
     cached_drawings = [] 
     event_batch = []
     last_send_time = time.time()
@@ -219,8 +255,8 @@ def main():
 
     try:
         while True:
-            ret, frame = cap.read()
-            if not ret: break
+            ret, frame = vs.read()
+            if not ret or frame is None: continue
             frame_count += 1
             
             # Show loading overlay until YOLO is ready
@@ -243,8 +279,8 @@ def main():
                     print(f"[INFO] Session {session_id} has been ended/completed. Stopping AI.")
                     break
 
-            # Inference every 6th frame
-            if frame_count % 6 != 0:
+            # Inference every 3rd frame (Faster Response)
+            if frame_count % 3 != 0:
                 for draw in cached_drawings:
                     cv2.rectangle(frame, draw['pt1'], draw['pt2'], draw['color'], 2)
                     cv2.putText(frame, draw['text'], draw['text_org'], cv2.FONT_HERSHEY_SIMPLEX, 0.5, draw['color'], 2)
@@ -273,6 +309,12 @@ def main():
                 persons = []
                 other_objects = []
                 for box, cls, track_id, conf in zip(boxes, clss, track_ids, confs):
+                    # Smoothing logic
+                    if track_id is not None:
+                        t_id = int(track_id)
+                        box_cache[t_id] = smooth_box(box_cache.get(t_id), box)
+                        box = box_cache[t_id]
+
                     bx1, by1, bx2, by2 = box
                     center = ((bx1 + bx2) / 2, (by1 + by2) / 2)
                     if int(cls) == 0:
@@ -346,12 +388,12 @@ def main():
                                         best_dist = 1.0
                                         best_idx = -1
                                         for i, known_emb in enumerate(known_face_encodings):
-                                            dist = cosine_distance(embedding, known_emb)
+                                            dist = float(cosine_distance(embedding, known_emb))
                                             if dist < best_dist:
                                                 best_dist = dist
                                                 best_idx = i
                                         
-                                        if best_dist < 0.4:
+                                        if float(best_dist) < 0.4:
                                             match = known_face_metadata[best_idx]
                                             display_name = match['name']
                                             student_ref = match['_id']
@@ -410,7 +452,7 @@ def main():
             if cv2.waitKey(1) & 0xFF == ord("q"): break
 
     finally:
-        cap.release()
+        vs.stop()
         cv2.destroyAllWindows()
 
 if __name__ == "__main__":

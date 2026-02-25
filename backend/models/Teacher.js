@@ -22,6 +22,10 @@ const teacherSchema = new mongoose.Schema({
     isAutoScheduleEnabled: {
         type: Boolean,
         default: true
+    },
+    cameraIndex: {
+        type: Number,
+        default: 0
     }
 }, { timestamps: true });
 

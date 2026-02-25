@@ -20,6 +20,7 @@ const Settings = () => {
     const [perceptionLevel, setPerceptionLevel] = useState('Medium');
     const [aiEngine, setAiEngine] = useState('High Performance');
     const [engagementThreshold, setEngagementThreshold] = useState(40);
+    const [cameraIndex, setCameraIndex] = useState(0);
 
     // Toggles State
     const [toggles, setToggles] = useState({
@@ -40,6 +41,7 @@ const Settings = () => {
             try {
                 const res = await api.get('/api/analytics/settings');
                 setToggles(prev => ({ ...prev, isAutoScheduleEnabled: res.data.isAutoScheduleEnabled }));
+                setCameraIndex(res.data.cameraIndex || 0);
                 setIsLoading(false);
             } catch (error) {
                 console.error("Failed to fetch settings", error);
@@ -64,6 +66,16 @@ const Settings = () => {
             toast.success(res.data.message);
         } catch (error) {
             toast.error("Failed to update auto-schedule.");
+        }
+    };
+
+    const handleCameraChange = async (index) => {
+        try {
+            const res = await api.put('/api/analytics/settings/camera', { cameraIndex: index });
+            setCameraIndex(res.data.cameraIndex);
+            toast.success(res.data.message, { icon: '📸' });
+        } catch (error) {
+            toast.error("Failed to update camera source.");
         }
     };
 
@@ -154,6 +166,28 @@ const Settings = () => {
                                         <option>Balanced (Neural Engine)</option>
                                         <option>Battery Saver (CPU Only)</option>
                                     </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 flex items-center">
+                                        <Smartphone className="w-4 h-4 mr-2 text-emerald-500" /> Active Camera Source
+                                    </label>
+                                    <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl space-x-1">
+                                        {[
+                                            { label: 'Laptop', idx: 0 },
+                                            { label: 'Mobile (USB)', idx: 1 }
+                                        ].map(cam => (
+                                            <button
+                                                key={cam.idx}
+                                                onClick={() => handleCameraChange(cam.idx)}
+                                                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${cameraIndex === cam.idx ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                            >
+                                                {cam.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="mt-2 text-[10px] text-slate-400 uppercase tracking-widest font-bold">
+                                        {cameraIndex === 1 ? '💡 Ensure Iriun/DroidCam is running on your phone' : 'Using built-in system camera'}
+                                    </p>
                                 </div>
                             </div>
 
