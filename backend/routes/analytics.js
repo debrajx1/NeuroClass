@@ -338,6 +338,12 @@ router.put('/session/:sessionId/end', protect, async (req, res) => {
         session.status = 'completed';
         await session.save();
 
+        // PID-targeted stop
+        if (session.pid) {
+            const { stopCameraProcess } = require('../utils/scheduler');
+            stopCameraProcess(session.pid);
+        }
+
         res.json({ message: 'Session ended successfully' });
     } catch (error) {
         res.status(500).json({ message: 'Server Error' });
@@ -365,8 +371,7 @@ router.post('/session/start-camera', protect, async (req, res) => {
             return res.status(400).json({ message: 'Class Name is required' });
         }
 
-        // Create the session first
-        // NOTE: In automated mode, scheduler usually does this. This is for manual overrides.
+        // Create the session
         const session = await Session.create({
             teacher: req.teacher._id,
             className,
@@ -377,26 +382,31 @@ router.post('/session/start-camera', protect, async (req, res) => {
 
         const scriptPath = path.join(__dirname, '../../ai_module/main.py');
         const aiModuleDir = path.join(__dirname, '../../ai_module');
+        const pythonPath = path.join(__dirname, '../../.venv/Scripts/python.exe');
 
-        // FORCE CLEANUP: Kill any orphaned python processes running main.py before starting a new one
-        // This prevents camera locking on Windows.
-        const { exec } = require('child_process');
+        // FORCED CLEANUP: Ensure no other python process is holding the camera.
+        // This is critical on Windows for a professional "handover" experience.
+        const { execSync } = require('child_process');
         try {
-            // We use /F to force and /T to kill child processes. 
-            // We target python.exe. In a real multi-user environment, we'd be more specific, 
-            // but for this standalone demo, clearing all python processes is safest for the camera.
-            exec('taskkill /F /IM python.exe /T', (err) => {
-                if (err) console.log("No existing python processes to kill or access denied.");
-            });
+            execSync('taskkill /F /IM python.exe /T');
+            console.log("[Manual Start] Forced cleanup of existing Python processes.");
         } catch (e) {
-            console.error("Cleanup failed", e);
+            // No process found, which is fine
         }
 
-        // Spawn python process in the background, injecting the real teacher ID, class name, and SESSION ID
-        const pyProcess = spawn('python', [scriptPath], {
+        // Wait a small moment for the camera driver to release
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        const fs = require('fs');
+        const logPath = path.join(aiModuleDir, 'camera_debug.log');
+        const out = fs.openSync(logPath, 'a');
+
+        // Spawn python process
+        const pyProcess = spawn(pythonPath, [scriptPath], {
             cwd: aiModuleDir,
             detached: true,
-            stdio: 'ignore', // Consider changing to ['ignore', process.stdout, process.stderr] for debugging if needed later
+            stdio: ['ignore', out, out],
+            windowsHide: true,
             env: {
                 ...process.env,
                 TEACHER_ID: req.teacher._id.toString(),
@@ -405,7 +415,13 @@ router.post('/session/start-camera', protect, async (req, res) => {
             }
         });
 
-        // Prevent parent from waiting for child to exit
+        const pid = pyProcess.pid;
+        console.log(`[Manual Start] Spawned AI Camera with PID: ${pid}`);
+
+        // Save PID to session
+        session.pid = pid;
+        await session.save();
+
         pyProcess.unref();
 
         res.json({ message: 'Camera module starting...' });
@@ -425,6 +441,7 @@ router.delete('/debug/clear', protect, async (req, res) => {
         await Event.deleteMany({});
         res.json({ message: 'All demo sessions and events cleared successfully.' });
     } catch (error) {
+        console.error("Wipe data error:", error);
         res.status(500).json({ message: 'Failed to clear data' });
     }
 });

@@ -1,5 +1,5 @@
 import React, { useState, useContext } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { AuthContext } from '../context/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { BrainCircuit, Mail, Lock, Loader2 } from 'lucide-react';
@@ -24,7 +24,7 @@ const Login = () => {
                 await login(email, password);
             } else {
                 // Register flow
-                const res = await axios.post('http://localhost:5000/api/auth/register', { name, email, password });
+                const res = await api.post('/api/auth/register', { name, email, password });
                 // Automatically log in after register
                 await login(email, password);
             }

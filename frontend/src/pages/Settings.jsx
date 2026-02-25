@@ -82,8 +82,7 @@ const Settings = () => {
     const handleClearDemoData = async () => {
         if (!window.confirm("WARNING: This will permanently delete ALL Class Sessions, Timelines, and Event data. Are you sure?")) return;
         try {
-            const token = localStorage.getItem('token');
-            await axios.delete('http://localhost:5000/api/analytics/debug/clear', { headers: { Authorization: `Bearer ${token}` } });
+            await api.delete('/api/analytics/debug/clear');
             toast.success("Database wiped successfully!", { icon: '🔥' });
         } catch (error) {
             toast.error("Failed to clear data.");

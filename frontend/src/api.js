@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // The centralized API URL. Change this once when deploying to production.
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = 'http://localhost:5002';
 
 const api = axios.create({
     baseURL: API_BASE_URL,

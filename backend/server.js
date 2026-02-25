@@ -49,9 +49,8 @@ const apiLimiter = rateLimit({
 });
 
 // Routes
-app.use('/api/', apiLimiter);
-app.use('/api/auth', authRoutes);
-app.use('/api/analytics', analyticsRoutes);
+app.use('/api/auth', apiLimiter, authRoutes);
+app.use('/api/analytics', apiLimiter, analyticsRoutes);
 app.use('/api/ingestion', ingestionRoutes);
 app.use('/api/students', require('./routes/students'));
 

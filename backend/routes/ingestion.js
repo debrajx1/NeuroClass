@@ -14,6 +14,23 @@ const requireApiKey = (req, res, next) => {
     next();
 };
 
+// @desc    Get latest active session for a teacher
+// @route   GET /api/ingestion/latest-session/:teacherId
+// @access  Private (AI Module)
+router.get('/latest-session/:teacherId', requireApiKey, async (req, res) => {
+    try {
+        const session = await Session.findOne({
+            teacher: req.params.teacherId,
+            status: 'active'
+        }).sort({ startTime: -1 });
+
+        if (!session) return res.status(404).json({ message: 'No active session' });
+        res.json({ sessionId: session._id });
+    } catch (err) {
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
 // @desc    Get all students (or filter by class)
 // @route   GET /api/ingestion/students/all or /students/:className
 // @access  Private (AI Module)

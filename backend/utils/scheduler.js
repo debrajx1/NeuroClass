@@ -40,7 +40,7 @@ const getCurrentClass = () => {
     return DAILY_SCHEDULE.find(slot => currentTimeStr >= slot.start && currentTimeStr < slot.end);
 };
 
-const startCameraProcess = (session, teacherId) => {
+const startCameraProcess = async (session, teacherId) => {
     if (activeProcess) {
         console.log("[Scheduler] Camera process already running.");
         return;
@@ -48,13 +48,20 @@ const startCameraProcess = (session, teacherId) => {
 
     const scriptPath = path.join(__dirname, '../../ai_module/main.py');
     const aiModuleDir = path.join(__dirname, '../../ai_module');
+    const pythonPath = path.join(__dirname, '../../.venv/Scripts/python.exe');
 
-    console.log(`[Scheduler] Spawning AI camera for Session: ${session._id} (${session.subject})`);
+    // FORCED CLEANUP: Ensure no other python process is holding the camera.
+    const { execSync } = require('child_process');
+    try {
+        execSync('taskkill /F /IM python.exe /T');
+        console.log("[Scheduler] Forced cleanup of existing Python processes.");
+    } catch (e) { }
 
-    activeProcess = spawn('python', [scriptPath], {
+    const pyProcess = spawn(pythonPath, [scriptPath], {
         cwd: aiModuleDir,
         detached: true,
         stdio: 'ignore',
+        windowsHide: true,
         env: {
             ...process.env,
             TEACHER_ID: teacherId.toString(),
@@ -63,63 +70,75 @@ const startCameraProcess = (session, teacherId) => {
         }
     });
 
-    activeProcess.unref();
+    const pid = pyProcess.pid;
+    console.log(`[Scheduler] Spawned AI Camera process with PID: ${pid}`);
 
-    activeProcess.on('exit', () => {
-        console.log("[Scheduler] AI Camera process exited.");
-        activeProcess = null;
+    // Update session with PID
+    try {
+        await Session.findByIdAndUpdate(session._id, { pid: pid });
+    } catch (err) {
+        console.error("[Scheduler] Failed to update session with PID:", err);
+    }
+
+    pyProcess.unref();
+    activeProcess = pyProcess;
+
+    pyProcess.on('exit', () => {
+        console.log(`[Scheduler] AI Camera process ${pid} exited.`);
+        if (activeProcess && activeProcess.pid === pid) {
+            activeProcess = null;
+        }
     });
 };
 
-const stopCameraProcess = () => {
-    console.log("[Scheduler] Ensuring AI camera process is terminated...");
+const stopCameraProcess = (pid) => {
+    if (!pid) {
+        console.log("[Scheduler] No PID provided to stop.");
+        return;
+    }
+    console.log(`[Scheduler] Terminating specific AI camera process (PID: ${pid})...`);
     try {
-        // Use taskkill /F to force-kill all python processes on Windows.
-        // This is much more reliable for the camera lock issue.
-        exec('taskkill /F /IM python.exe /T', (err) => {
-            if (err) console.log("[Scheduler] No camera process to kill.");
+        // Targeted kill of the specific PID and its children
+        exec(`taskkill /F /PID ${pid} /T`, (err) => {
+            if (err) console.log(`[Scheduler] Process ${pid} already terminated or access denied.`);
         });
     } catch (e) {
-        console.error("[Scheduler] Failed to kill camera process:", e);
+        console.error(`[Scheduler] Failed to kill process ${pid}:`, e);
     }
-    activeProcess = null;
-}
+};
 
 const initScheduler = async () => {
     console.log("[Scheduler] Initialized. Checking schedule every minute...");
 
     cron.schedule('* * * * *', async () => {
         if (process.env.DISABLE_AUTO_SCHEDULER === 'true') {
-            return; // Exit silently if master kill switch is ON
+            return;
         }
         try {
-            // Fetch all teachers to check their individual schedules and toggles
             const teachers = await Teacher.find({});
 
             for (const teacher of teachers) {
                 const isEnabled = teacher.isAutoScheduleEnabled;
                 const expectedClass = getCurrentClass();
 
-                // Find any currently active session for THIS teacher
                 const activeSession = await Session.findOne({
                     teacher: teacher._id,
                     status: 'active'
                 });
 
-                // CRITICAL: If the teacher is running a MANUAL session (for testing/demo),
-                // the scheduler MUST back off completely and never touch it.
+                // 1. Master Check: If MANUAL session is running, DON'T TOUCH IT.
                 if (activeSession && activeSession.isManual) {
-                    continue; // Check next teacher
+                    continue;
                 }
 
+                // 2. Automation Logic
                 if (isEnabled && expectedClass) {
-                    // Calculate expected start time for today
                     const now = new Date();
                     const [h, m] = expectedClass.start.split(':').map(Number);
                     const classStartTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
 
                     if (!activeSession) {
-                        // Check if we already created an AUTO session for this teacher/subject today
+                        // Start new auto session if none exists today
                         const existingSession = await Session.findOne({
                             teacher: teacher._id,
                             className: expectedClass.className,
@@ -128,24 +147,24 @@ const initScheduler = async () => {
                             isManual: { $ne: true }
                         });
 
-                        if (existingSession) continue;
-
-                        console.log(`[Scheduler] Automation starting for ${teacher.email}: ${expectedClass.subject}`);
-                        const newSession = await Session.create({
-                            teacher: teacher._id,
-                            className: expectedClass.className,
-                            subject: expectedClass.subject,
-                            status: 'active',
-                            isManual: false
-                        });
-                        startCameraProcess(newSession, teacher._id);
+                        if (!existingSession) {
+                            console.log(`[Scheduler] Starting AUTO session for ${teacher.email}: ${expectedClass.subject}`);
+                            const newSession = await Session.create({
+                                teacher: teacher._id,
+                                className: expectedClass.className,
+                                subject: expectedClass.subject,
+                                status: 'active',
+                                isManual: false
+                            });
+                            startCameraProcess(newSession, teacher._id);
+                        }
                     } else if (activeSession.subject !== expectedClass.subject) {
                         // Subject changed
-                        console.log(`[Scheduler] Automation: Subject changed for ${teacher.email}.`);
+                        console.log(`[Scheduler] AUTO Subject changed for ${teacher.email}.`);
                         activeSession.status = 'completed';
                         activeSession.endTime = new Date();
                         await activeSession.save();
-                        stopCameraProcess();
+                        stopCameraProcess(activeSession.pid);
 
                         const newSession = await Session.create({
                             teacher: teacher._id,
@@ -157,17 +176,13 @@ const initScheduler = async () => {
                         setTimeout(() => startCameraProcess(newSession, teacher._id), 2000);
                     }
                 } else {
-                    // Automation is OFF or NO CLASS scheduled.
-                    // If an AUTO session is running for this teacher, close it.
+                    // Automation is OFF or NO CLASS. Clean up AUTO sessions.
                     if (activeSession && !activeSession.isManual) {
-                        console.log(`[Scheduler] Automation ending for ${teacher.email}: ${activeSession.subject}`);
+                        console.log(`[Scheduler] AUTO session ending for ${teacher.email}: ${activeSession.subject}`);
                         activeSession.status = 'completed';
                         activeSession.endTime = new Date();
                         await activeSession.save();
-                        stopCameraProcess();
-                    } else if (activeSession && activeSession.isManual) {
-                        // Log that we are staying out of the way of a manual session
-                        // console.log(`[Scheduler] Manual session active for ${teacher.email}. Standing by.`);
+                        stopCameraProcess(activeSession.pid);
                     }
                 }
             }
@@ -177,4 +192,4 @@ const initScheduler = async () => {
     });
 };
 
-module.exports = { initScheduler, DAILY_SCHEDULE, getCurrentClass };
+module.exports = { initScheduler, DAILY_SCHEDULE, getCurrentClass, stopCameraProcess };

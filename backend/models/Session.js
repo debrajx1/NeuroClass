@@ -28,6 +28,9 @@ const sessionSchema = new mongoose.Schema({
     isManual: {
         type: Boolean,
         default: false
+    },
+    pid: {
+        type: Number
     }
 }, { timestamps: true });
 
