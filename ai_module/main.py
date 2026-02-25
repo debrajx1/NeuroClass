@@ -59,6 +59,10 @@ def load_models_async():
             print(f"[WARNING] Deepface initialization issue: {e}")
             
     except Exception as e:
+        import traceback
+        with open("error.txt", "w") as f:
+            f.write(f"Heavy model loading failed: {e}\n")
+            f.write(traceback.format_exc())
         print(f"[ERROR] Heavy model loading failed: {e}")
         # Ensure YOLO is marked loaded if it succeeded before the crash
         if YOLO and model:
@@ -128,6 +132,28 @@ def start_session():
             print(f"[ERROR] Session lookup error: {e}")
         
     return None
+
+def check_session_active(session_id):
+    """Check if the session is still active in the backend"""
+    global requests
+    if not requests or not session_id or session_id == "mock_session_id_123":
+        return True
+    
+    BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5002")
+    API_KEY = os.getenv("INGESTION_API_KEY", "ai-secret-key")
+    HEADERS = {"Content-Type": "application/json", "x-api-key": API_KEY}
+    
+    try:
+        resp = requests.get(f"{BACKEND_URL}/api/ingestion/session/{session_id}/status", 
+                            headers=HEADERS, timeout=5)
+        if resp.status_code == 200:
+            status = resp.json().get("status")
+            return status == "active"
+        elif resp.status_code == 404:
+            return False # Session no longer exists
+    except Exception as e:
+        print(f"[DEBUG] Session status check failed: {e}")
+    return True # Assume active if backend is temporarily unreachable
 
 def is_inside(boxA, boxB):
     xA1, yA1, xA2, yA2 = boxA
@@ -211,12 +237,11 @@ def main():
             
             # Standard processing logic continues...
 
-            # Periodically check session status
-            if frame_count % 60 == 0:
-                try:
-                    # Logic to check if session ended
-                    pass
-                except: pass
+            # Periodically check if session was ended from Dashboard
+            if frame_count % 150 == 0: # Every ~5-10 seconds depending on FPS
+                if not check_session_active(session_id):
+                    print(f"[INFO] Session {session_id} has been ended/completed. Stopping AI.")
+                    break
 
             # Inference every 6th frame
             if frame_count % 6 != 0:
@@ -266,26 +291,34 @@ def main():
                     state = "attentive"
                     color = (0, 255, 0) # Green
                     
-                    # 1. Phone Detection Heuristic (Class 67)
+                    # --- Behavior Priority State Machine ---
+                    
+                    # 1. [CRITICAL] Phone Detection Heuristic (Class 67)
+                    # We check if a phone is near the person.
                     for obj in other_objects:
                         if obj['cls'] == 67:
+                            # Use Euclidean distance between centers
                             dist = np.sqrt((p['center'][0] - obj['center'][0])**2 + (p['center'][1] - obj['center'][1])**2)
-                            if dist < 170: # Increased sensitivity from 120
+                            # Check if phone is inside or very close to person box
+                            if dist < 185: # Increased distance sensitivity
                                 state = "phone"
                                 break
                     
-                    # 2. Sleeping Heuristic (Aspect Ratio + Confidence)
-                    # If person is "wide" (leaning/lying)
-                    aspect_ratio = p['w'] / (p['h'] + 1e-6)
-                    if aspect_ratio > 1.15: # Increased sensitivity from 1.3
-                        state = "sleeping"
-                    
-                    # 3. Talking Heuristic (Distance to other persons)
+                    # 2. [HIGH] Sleeping Heuristic (Aspect Ratio)
                     if state == "attentive":
+                        # If person is "wide" (leaning/lying on desk)
+                        aspect_ratio = p['w'] / (p['h'] + 1e-6)
+                        if aspect_ratio > 1.35: # Increased from 1.15 to avoid false positives for just sitting
+                            state = "sleeping"
+                    
+                    # 3. [MEDIUM] Talking Heuristic (Distance to other persons)
+                    if state == "attentive":
+                        # If two people are very close, they are likely talking
                         for other_p in persons:
                             if other_p['track_id'] != track_id:
                                 dist = np.sqrt((p['center'][0] - other_p['center'][0])**2 + (p['center'][1] - other_p['center'][1])**2)
-                                if dist < 250: # Increased sensitivity from 150
+                                # Threshold to distinguish "sitting next to each other" vs "leaning in to talk"
+                                if dist < 190: # Reduced from 250 to avoid false talking detections for just sitting
                                     state = "talking"
                                     break
                     
