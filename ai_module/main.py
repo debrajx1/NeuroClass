@@ -378,8 +378,15 @@ def main():
                     elif facenet_loaded and len(known_face_encodings) > 0:
                         # Try to recognize
                         tx1, ty1, tx2, ty2 = map(int, p['box'])
-                        person_crop = frame[max(0, ty1):min(h, ty2), max(0, tx1):min(w, tx2)]
+                        # Crop with padding
+                        pad = 10
+                        person_crop = frame[max(0, ty1-pad):min(h, ty2+pad), max(0, tx1-pad):min(w, tx2+pad)]
+                        
                         if person_crop.size > 0:
+                            # Enhance image for low light (Brightness + Contrast)
+                            # alpha 1.3 (+30% contrast), beta 40 (+40 brightness)
+                            person_crop = cv2.convertScaleAbs(person_crop, alpha=1.3, beta=40)
+                            
                             try:
                                 if DeepFace:
                                     reps = DeepFace.represent(img_path=person_crop, model_name="Facenet", enforce_detection=False)
@@ -393,11 +400,16 @@ def main():
                                                 best_dist = dist
                                                 best_idx = i
                                         
-                                        if float(best_dist) < 0.4:
+                                        # Incread threshold from 0.4 to 0.55 for low light
+                                        if float(best_dist) < 0.55:
                                             match = known_face_metadata[best_idx]
                                             display_name = match['name']
                                             student_ref = match['_id']
                                             identity_cache[int(track_id)] = {'name': display_name, 'student_ref': student_ref}
+                                            print(f"[INFO] Identified {display_name} (dist: {best_dist:.3f})")
+                                        else:
+                                            if best_idx != -1:
+                                                print(f"[DEBUG] Closest match {known_face_metadata[best_idx]['name']} dist: {best_dist:.3f} (threshold: 0.55)")
                             except Exception as e:
                                 print(f"[DEBUG] Recognition error for track {track_id}: {e}")
                     
